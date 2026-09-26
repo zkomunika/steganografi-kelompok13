@@ -22,7 +22,7 @@
       <div class="nav-item" data-page="analysis"><span class="nav-num">04</span>Image Analysis</div>
       <div class="nav-item" data-page="jpeg"><span class="nav-num">05</span>JPEG Test</div>
     </nav>
-    <div class="sidebar-foot">build v0.1<br>informatika · tugas akhir</div>
+    <div class="sidebar-foot">build v0.2<br>informatika · tugas akhir</div>
   </aside>
 
   <main class="main">
@@ -77,9 +77,9 @@
         <p class="page-desc">Sisipkan Secret Message ke dalam Cover Image menggunakan LSB dan urutan posisi piksel dari PRNG.</p>
       </div>
       <div class="stepper">
-        <div class="step done"><div class="step-dot">✓</div><div class="step-label">Input</div></div>
+        <div class="step current"><div class="step-dot">1</div><div class="step-label">Input</div></div>
         <div class="step-line"></div>
-        <div class="step current"><div class="step-dot">2</div><div class="step-label">Process</div></div>
+        <div class="step"><div class="step-dot">2</div><div class="step-label">Process</div></div>
         <div class="step-line"></div>
         <div class="step"><div class="step-dot">3</div><div class="step-label">Result</div></div>
         <div class="step-line"></div>
@@ -90,24 +90,42 @@
         <div>
           <div class="card">
             <div class="card-title">Input</div>
+            <!-- Cover Image upload -->
             <div class="field">
               <label>Cover Image (PNG/BMP)</label>
-              <div class="dropzone">Klik atau tarik file ke sini<br><span class="fname">cover_lena.png · 512×512</span></div>
+              <div class="dropzone" id="emb-dropzone">
+                Klik atau tarik file ke sini
+                <br><span class="fname" id="emb-fname">Belum ada file dipilih</span>
+              </div>
             </div>
+            <!-- Image metadata -->
+            <div class="field" id="emb-meta-panel" style="display:none;">
+              <label>Metadata Citra</label>
+              <div class="meta-grid">
+                <div class="meta-row"><span class="meta-key">Lebar</span><span class="meta-val" id="emb-meta-width">—</span></div>
+                <div class="meta-row"><span class="meta-key">Tinggi</span><span class="meta-val" id="emb-meta-height">—</span></div>
+                <div class="meta-row"><span class="meta-key">Format</span><span class="meta-val" id="emb-meta-format">—</span></div>
+                <div class="meta-row"><span class="meta-key">Ukuran</span><span class="meta-val" id="emb-meta-size">—</span></div>
+                <div class="meta-row"><span class="meta-key">Channel</span><span class="meta-val" id="emb-meta-channels">—</span></div>
+              </div>
+            </div>
+            <!-- Secret Message -->
             <div class="field">
               <label>Secret Message</label>
-              <textarea placeholder="Tulis pesan rahasia di sini…">Ujian tengah semester dimulai tanggal 14 Oktober.</textarea>
+              <textarea id="emb-message" placeholder="Tulis pesan rahasia di sini…"></textarea>
             </div>
+            <!-- Stego-Key -->
             <div class="field">
               <label>Stego-Key</label>
-              <input type="password" value="skripsi-2026-key">
+              <input type="password" id="emb-key" placeholder="Masukkan Stego-Key…" autocomplete="off">
             </div>
+            <!-- Capacity bar -->
             <div class="field">
               <label>Kapasitas Pesan</label>
-              <div class="capacity-bar"><div class="capacity-fill"></div></div>
-              <div class="help">104 / 306 karakter terpakai (34% kapasitas maksimum citra)</div>
+              <div class="capacity-bar"><div class="capacity-fill" id="emb-capacity-fill" style="width:0%;"></div></div>
+              <div class="help" id="emb-capacity-help">Upload cover image untuk melihat kapasitas.</div>
             </div>
-            <button class="btn btn-primary">Embed Message</button>
+            <button class="btn btn-primary" id="emb-btn">Embed Message</button>
           </div>
         </div>
 
@@ -116,12 +134,12 @@
             <div class="card-title">Preview</div>
             <div class="preview-grid">
               <div class="preview-box">
-                <div class="preview-label"><span>Cover Image</span><span>512×512</span></div>
-                <div class="pixel-frame">cover_lena.png</div>
+                <div class="preview-label"><span>Cover Image</span><span id="emb-cover-dim">—</span></div>
+                <div class="pixel-frame" id="emb-cover-preview">Belum ada image</div>
               </div>
               <div class="preview-box">
-                <div class="preview-label"><span>Stego Image</span><span>512×512</span></div>
-                <div class="pixel-frame">stego_output.png</div>
+                <div class="preview-label"><span>Stego Image</span><span id="emb-stego-dim">—</span></div>
+                <div class="pixel-frame" id="emb-stego-preview">Hasil embedding</div>
               </div>
             </div>
           </div>
@@ -130,23 +148,23 @@
             <div class="metrics">
               <div class="metric">
                 <div class="metric-label">MSE</div>
-                <div class="metric-value good">0.0021</div>
+                <div class="metric-value" id="emb-mse">—</div>
                 <div class="metric-note">semakin rendah semakin baik</div>
               </div>
               <div class="metric">
                 <div class="metric-label">PSNR</div>
-                <div class="metric-value good">74.88 dB</div>
+                <div class="metric-value" id="emb-psnr">—</div>
                 <div class="metric-note">&gt;50 dB · tidak kasat mata</div>
               </div>
               <div class="metric">
                 <div class="metric-label">Ukuran File</div>
-                <div class="metric-value">262 KB</div>
-                <div class="metric-note">cover: 261 KB</div>
+                <div class="metric-value" id="emb-filesize">—</div>
+                <div class="metric-note">perubahan vs cover</div>
               </div>
             </div>
             <div style="margin-top:16px;display:flex;gap:10px;">
-              <button class="btn btn-primary" style="width:auto;">↓ Download Stego Image</button>
-              <button class="btn btn-secondary" data-goto="analysis">Lihat di Image Analysis</button>
+              <button class="btn btn-primary" id="emb-download-btn" style="width:auto;" disabled>↓ Download Stego Image</button>
+              <button class="btn btn-secondary" id="emb-analysis-btn" data-goto="analysis">Lihat di Image Analysis</button>
             </div>
           </div>
         </div>
@@ -160,9 +178,9 @@
         <p class="page-desc">Ambil kembali Secret Message dari Stego Image menggunakan Stego-Key yang sama saat proses embedding.</p>
       </div>
       <div class="stepper">
-        <div class="step done"><div class="step-dot">✓</div><div class="step-label">Input</div></div>
+        <div class="step current"><div class="step-dot">1</div><div class="step-label">Input</div></div>
         <div class="step-line"></div>
-        <div class="step current"><div class="step-dot">2</div><div class="step-label">Process</div></div>
+        <div class="step"><div class="step-dot">2</div><div class="step-label">Process</div></div>
         <div class="step-line"></div>
         <div class="step"><div class="step-dot">3</div><div class="step-label">Result</div></div>
       </div>
@@ -173,13 +191,16 @@
             <div class="card-title">Input</div>
             <div class="field">
               <label>Stego Image (PNG/BMP)</label>
-              <div class="dropzone">Klik atau tarik file ke sini<br><span class="fname">stego_output.png · 512×512</span></div>
+              <div class="dropzone" id="ext-dropzone">
+                Klik atau tarik file ke sini
+                <br><span class="fname" id="ext-fname">Belum ada file dipilih</span>
+              </div>
             </div>
             <div class="field">
               <label>Stego-Key</label>
-              <input type="password" value="skripsi-2026-key">
+              <input type="password" id="ext-key" placeholder="Masukkan Stego-Key…" autocomplete="off">
             </div>
-            <button class="btn btn-primary">Extract Message</button>
+            <button class="btn btn-primary" id="ext-btn">Extract Message</button>
           </div>
         </div>
 
@@ -187,18 +208,18 @@
           <div class="card">
             <div class="card-title">Preview</div>
             <div class="preview-box">
-              <div class="preview-label"><span>Stego Image</span><span>512×512</span></div>
-              <div class="pixel-frame">stego_output.png</div>
+              <div class="preview-label"><span>Stego Image</span><span id="ext-stego-dim">—</span></div>
+              <div class="pixel-frame" id="ext-stego-preview">Belum ada image</div>
             </div>
           </div>
-          <div class="card">
+          <div class="card" id="ext-result-box">
             <div class="card-title">
               Hasil Ekstraksi
-              <span class="status ok"><span class="status-dot"></span>Berhasil diekstrak</span>
+              <span id="ext-result-status"></span>
             </div>
             <div class="field" style="margin-bottom:0;">
               <label>Secret Message</label>
-              <textarea readonly>Ujian tengah semester dimulai tanggal 14 Oktober.</textarea>
+              <textarea id="ext-result-textarea" readonly placeholder="Pesan akan muncul setelah ekstraksi…"></textarea>
             </div>
           </div>
         </div>
@@ -223,27 +244,27 @@
 
       <div class="preview-grid" style="margin-bottom:16px;">
         <div class="preview-box">
-          <div class="preview-label"><span>Cover Image</span><span>261 KB</span></div>
-          <div class="pixel-frame">cover_lena.png</div>
+          <div class="preview-label"><span>Cover Image</span><span id="ana-cover-size">—</span></div>
+          <div class="pixel-frame" id="ana-cover-preview">Belum tersedia</div>
         </div>
         <div class="preview-box">
-          <div class="preview-label"><span>Stego Image</span><span>262 KB</span></div>
-          <div class="pixel-frame">stego_output.png</div>
+          <div class="preview-label"><span>Stego Image</span><span id="ana-stego-size">—</span></div>
+          <div class="pixel-frame" id="ana-stego-preview">Belum tersedia</div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title">Metrik Kualitas Citra</div>
         <div class="metrics">
-          <div class="metric"><div class="metric-label">MSE</div><div class="metric-value good">0.0021</div></div>
-          <div class="metric"><div class="metric-label">PSNR</div><div class="metric-value good">74.88 dB</div></div>
-          <div class="metric"><div class="metric-label">Selisih Ukuran File</div><div class="metric-value">+1 KB</div></div>
+          <div class="metric"><div class="metric-label">MSE</div><div class="metric-value" id="ana-mse">—</div></div>
+          <div class="metric"><div class="metric-label">PSNR</div><div class="metric-value" id="ana-psnr">—</div></div>
+          <div class="metric"><div class="metric-label">Selisih Ukuran File</div><div class="metric-value" id="ana-filedelta">—</div></div>
         </div>
       </div>
       <div class="card">
         <div class="card-title">Ringkasan Perubahan</div>
-        <p style="font-size:12.5px;color:var(--ink-soft);line-height:1.7;margin:0;">
-          Nilai PSNR sebesar <code style="font-family:var(--mono)">74.88 dB</code> berada jauh di atas ambang batas persepsi visual manusia (umumnya &gt;40 dB), menunjukkan bahwa penyisipan 104 karakter pesan pada citra 512×512 tidak menghasilkan distorsi yang kasat mata. Perubahan ukuran file bersifat marginal karena format PNG bersifat lossless.
+        <p id="ana-summary" style="font-size:12.5px;color:var(--ink-soft);line-height:1.7;margin:0;">
+          Lakukan proses Embedding terlebih dahulu untuk melihat ringkasan analisis citra.
         </p>
       </div>
     </section>
@@ -255,9 +276,9 @@
         <p class="page-desc">Uji ketahanan pesan tersembunyi terhadap kompresi lossy JPEG pada berbagai nilai Quality Factor.</p>
       </div>
       <div class="stepper">
-        <div class="step done"><div class="step-dot">✓</div><div class="step-label">Input</div></div>
+        <div class="step current"><div class="step-dot">1</div><div class="step-label">Input</div></div>
         <div class="step-line"></div>
-        <div class="step current"><div class="step-dot">2</div><div class="step-label">Process</div></div>
+        <div class="step"><div class="step-dot">2</div><div class="step-label">Process</div></div>
         <div class="step-line"></div>
         <div class="step"><div class="step-dot">3</div><div class="step-label">Result</div></div>
         <div class="step-line"></div>
@@ -269,19 +290,22 @@
           <div class="card">
             <div class="card-title">Input Pengujian</div>
             <div class="field">
-              <label>Stego Image</label>
-              <div class="dropzone">Pilih dari hasil Embedding<br><span class="fname">stego_output.png</span></div>
+              <label>Stego Image (PNG/BMP)</label>
+              <div class="dropzone" id="jpeg-dropzone">
+                Klik atau tarik file ke sini
+                <br><span class="fname" id="jpeg-fname">Belum ada file dipilih</span>
+              </div>
             </div>
             <div class="field">
               <label>Stego-Key</label>
-              <input type="password" value="skripsi-2026-key">
+              <input type="password" id="jpeg-key" placeholder="Masukkan Stego-Key…" autocomplete="off">
             </div>
             <div class="field">
-              <label>Quality Factor JPEG: <b style="font-family:var(--mono);">70</b></label>
-              <input type="range" min="10" max="100" value="70">
+              <label>Quality Factor JPEG: <b id="jpeg-qf-label" style="font-family:var(--mono);">70</b></label>
+              <input type="range" id="jpeg-qf-range" min="10" max="100" value="70">
               <div class="help">10 (kompresi berat) — 100 (kompresi minimal)</div>
             </div>
-            <button class="btn btn-primary">Run JPEG Test</button>
+            <button class="btn btn-primary" id="jpeg-btn">Run JPEG Test</button>
           </div>
         </div>
 
@@ -290,28 +314,28 @@
             <div class="card-title">Hasil Kompresi</div>
             <div class="preview-grid">
               <div class="preview-box">
-                <div class="preview-label"><span>Stego Image</span><span>PNG</span></div>
-                <div class="pixel-frame">stego_output.png</div>
+                <div class="preview-label"><span>Stego Image</span><span id="jpeg-stego-dim">—</span></div>
+                <div class="pixel-frame" id="jpeg-stego-preview">Belum ada image</div>
               </div>
               <div class="preview-box">
-                <div class="preview-label"><span>JPEG Image</span><span>QF 70</span></div>
-                <div class="pixel-frame">stego_qf70.jpg</div>
+                <div class="preview-label"><span>JPEG Image</span><span id="jpeg-qf-badge">QF —</span></div>
+                <div class="pixel-frame" id="jpeg-jpeg-preview">Hasil kompresi</div>
               </div>
             </div>
           </div>
           <div class="card">
             <div class="card-title">
               Hasil Extraction
-              <span class="status fail"><span class="status-dot"></span>Pesan tidak utuh</span>
+              <span id="jpeg-result-status"></span>
             </div>
             <div class="field">
               <label>Secret Message (setelah kompresi)</label>
-              <textarea readonly>UjiaN t%ngah s3mest&r &ima#ai tangg^l 1_ Okt*ber.</textarea>
+              <textarea id="jpeg-result-textarea" readonly placeholder="Pesan setelah kompresi JPEG akan muncul di sini…"></textarea>
             </div>
             <div class="metrics">
-              <div class="metric"><div class="metric-label">Bit Accuracy — Sebelum</div><div class="metric-value good">100%</div></div>
-              <div class="metric"><div class="metric-label">Bit Accuracy — Sesudah</div><div class="metric-value" style="color:var(--warn);">61.4%</div></div>
-              <div class="metric"><div class="metric-label">Quality Factor</div><div class="metric-value">70</div></div>
+              <div class="metric"><div class="metric-label">Bit Accuracy — Sebelum</div><div class="metric-value" id="jpeg-acc-before">—</div></div>
+              <div class="metric"><div class="metric-label">Bit Accuracy — Sesudah</div><div class="metric-value" id="jpeg-acc-after">—</div></div>
+              <div class="metric"><div class="metric-label">Quality Factor</div><div class="metric-value" id="jpeg-qf-result">—</div></div>
             </div>
           </div>
         </div>
@@ -321,12 +345,8 @@
         <div class="card-title">Tabel Hasil Pengujian — Berbagai Quality Factor</div>
         <table>
           <thead><tr><th class="mono">QF</th><th>Status Ekstraksi</th><th class="mono">Bit Accuracy</th><th class="mono">PSNR (JPEG)</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">100</td><td><span class="status ok"><span class="status-dot"></span>Utuh</span></td><td class="mono">100%</td><td class="mono">61.2 dB</td></tr>
-            <tr><td class="mono">90</td><td><span class="status ok"><span class="status-dot"></span>Utuh</span></td><td class="mono">98.7%</td><td class="mono">52.4 dB</td></tr>
-            <tr class="highlight"><td class="mono">70</td><td><span class="status fail"><span class="status-dot"></span>Rusak</span></td><td class="mono">61.4%</td><td class="mono">41.8 dB</td></tr>
-            <tr><td class="mono">50</td><td><span class="status fail"><span class="status-dot"></span>Rusak</span></td><td class="mono">53.9%</td><td class="mono">37.1 dB</td></tr>
-            <tr><td class="mono">30</td><td><span class="status fail"><span class="status-dot"></span>Rusak</span></td><td class="mono">50.2%</td><td class="mono">32.6 dB</td></tr>
+          <tbody id="jpeg-history-tbody">
+            <tr><td colspan="4" style="text-align:center;color:var(--ink-soft);font-size:12px;padding:18px;">Belum ada pengujian dilakukan.</td></tr>
           </tbody>
         </table>
       </div>

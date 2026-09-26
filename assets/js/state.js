@@ -1,77 +1,117 @@
 // state.js
-// Single source of truth for data shared between controllers and the
-// presentation layer. Controllers read/write state here instead of
-// controllers reaching into each other, and instead of core/evaluation
-// modules touching the DOM directly.
-//
-// This checkpoint pre-fills state with the same demo values already
-// present in the prototype markup, so the UI keeps rendering exactly
-// as before while the real computation is still a stub (see
-// assets/js/core and assets/js/evaluation).
+// Single source of truth for all data shared between controllers and the
+// presentation layer. State lives only in memory — it is cleared on page
+// reload. No sensitive data (stego-key, message) is written to any
+// persistent storage.
 
-import { CONFIG } from './config.js';
 import { PAGES } from './constants.js';
 
-const state = {
+// ---------------------------------------------------------------------------
+// Shape definitions (for documentation / IDE hints)
+//
+// ImageMetadata: {
+//   name      : string        – original filename
+//   size      : number        – bytes on disk
+//   width     : number        – pixels
+//   height    : number        – pixels
+//   format    : 'png'|'bmp'   – detected format
+//   channels  : number        – always 3 (RGB; alpha not used for embedding)
+//   dataUrl   : string        – data: URL for <img> preview
+//   imageData : ImageData     – decoded pixel buffer (RGBA Uint8ClampedArray)
+// }
+//
+// CapacityInfo: {
+//   totalBits    : number   – width × height × 3 (RGB channels × 1 bit each)
+//   usedBits     : number   – bits needed to embed current message
+//   pct          : number   – 0–100
+//   valid        : boolean  – usedBits <= totalBits
+// }
+// ---------------------------------------------------------------------------
+
+const _state = {
   navigation: {
     currentPage: PAGES.DASHBOARD,
   },
 
-  embedding: {
-    coverImage: null, // { name, size, width, height, dataUrl } once a real file is picked
-    secretMessage: 'Ujian tengah semester dimulai tanggal 14 Oktober.',
-    stegoKey: CONFIG.defaultStegoKey,
-    stegoImage: null, // result of the embedding pipeline
-    evaluation: null, // { mse, psnr, fileSizeDeltaKb }
-  },
+  // ── Embedding ─────────────────────────────────────────────────────────────
+  coverImage:     null,   // ImageMetadata | null
+  stegoImage:     null,   // ImageMetadata | null  (output of embedding)
 
-  extraction: {
-    stegoImage: null,
-    stegoKey: CONFIG.defaultStegoKey,
-    extractedMessage: null,
-    status: null, // STATUS.OK | STATUS.FAIL
-  },
+  secretMessage:  '',     // raw text; never pre-filled with demo data
+  messageBits:    [],     // number[] (0/1)  – derived from secretMessage
 
-  analysis: {
-    coverImage: null,
-    stegoImage: null,
-    metrics: null, // { mse, psnr, fileSizeDeltaKb }
-  },
+  stegoKey:       '',     // string; held in memory only, never persisted
 
-  jpegTest: {
-    stegoImage: null,
-    stegoKey: CONFIG.defaultStegoKey,
-    qualityFactor: CONFIG.jpegTest.defaultQuality,
-    result: null, // { jpegImage, extractedMessage, bitAccuracyBefore, bitAccuracyAfter }
-    history: [], // rows for the "Berbagai Quality Factor" table
-  },
+  capacity:       null,   // CapacityInfo | null – recomputed on image/message change
+
+  // ── Extraction ────────────────────────────────────────────────────────────
+  extractionImage:  null, // ImageMetadata | null (stego image uploaded for extraction)
+  extractionKey:    '',   // separate key field on the extraction page
+  extractionResult: null, // { message: string, status: 'ok'|'fail' } | null
+
+  // ── Extraction (for JPEG page) ────────────────────────────────────────────
+  jpegStegoImage:  null,  // ImageMetadata | null
+  jpegKey:         '',    // key on the JPEG test page
+  qualityFactor:   70,
+  jpegTestResult:  null,  // { jpegDataUrl, extractedMessage, bitAccuracyBefore, bitAccuracyAfter } | null
+  jpegTestHistory: [],    // row[]
+
+  // ── Analysis ──────────────────────────────────────────────────────────────
+  analysisResult: null,   // { mse, psnr, fileSizeDeltaKb, summary } | null
+
+  // ── Embedding result ──────────────────────────────────────────────────────
+  embeddingResult: null,  // { success: bool, stegoImageData: ImageData, ... } | null
 };
 
-const listeners = new Set();
+// ---------------------------------------------------------------------------
+// Subscriber registry
+// ---------------------------------------------------------------------------
+const _listeners = new Set();
 
 /** Read-only access to the whole state tree. */
 export function getState() {
-  return state;
+  return _state;
 }
 
 /**
- * Set a value by dotted path (e.g. "embedding.stegoKey") and notify
- * subscribers. Kept intentionally simple — no reducers/actions layer,
- * this is a static-site foundation, not a framework.
+ * Set a nested value by dotted path (e.g. "stegoKey") and notify
+ * all subscribers synchronously.
+ *
+ * @param {string} path  – dotted key path into _state
+ * @param {*}      value – new value
  */
 export function setState(path, value) {
   const keys = path.split('.');
-  let obj = state;
+  let obj = _state;
   while (keys.length > 1) {
-    const key = keys.shift();
-    obj = obj[key];
+    const k = keys.shift();
+    if (!(k in obj)) throw new Error(`[state] Unknown path segment: "${k}"`);
+    obj = obj[k];
   }
   obj[keys[0]] = value;
-  listeners.forEach((fn) => fn(state, path));
+  _listeners.forEach((fn) => fn(_state, path));
 }
 
-/** Subscribe to any state change. Returns an unsubscribe function. */
+/**
+ * Subscribe to any state change.
+ * @param {function} fn  – called with (state, changedPath) on every setState
+ * @returns {function}   – call to unsubscribe
+ */
 export function subscribe(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+  _listeners.add(fn);
+  return () => _listeners.delete(fn);
+}
+
+/**
+ * Convenience: update multiple fields atomically (one notify per batch).
+ * @param {Object} patch – plain object of { "path": value } entries
+ */
+export function batchSetState(patch) {
+  Object.entries(patch).forEach(([path, value]) => {
+    const keys = path.split('.');
+    let obj = _state;
+    while (keys.length > 1) obj = obj[keys.shift()];
+    obj[keys[0]] = value;
+  });
+  _listeners.forEach((fn) => fn(_state, '_batch'));
 }
