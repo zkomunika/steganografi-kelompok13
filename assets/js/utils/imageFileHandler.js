@@ -1,11 +1,33 @@
 // utils/imageFileHandler.js
-// Handles saving a generated image (e.g. the Stego Image or the
-// JPEG-compressed test image) back to the user's device.
+// Handles saving a generated image (e.g. the Stego Image) back to the
+// user's device as a PNG file via a programmatic <a> download trigger.
 //
-// NOT IMPLEMENTED YET — "Download Stego Image" is wired to this module
-// so the click handler itself stays free of any file-writing logic.
-//   downloadImage(pixelBufferOrDataUrl, filename) -> void
+// No pixel manipulation lives here — this module only handles the
+// "save to disk" concern.
 
-export function downloadImage(_pixelBufferOrDataUrl, _filename) {
-  console.warn('[utils/imageFileHandler] downloadImage() is not implemented yet');
+/**
+ * Memicu download file image ke perangkat pengguna.
+ * Menerima data URL atau Blob.
+ *
+ * @param {string|Blob} dataUrlOrBlob  – PNG data URL atau Blob
+ * @param {string}      filename       – nama file (termasuk ekstensi, mis. "stego.png")
+ */
+export function downloadImage(dataUrlOrBlob, filename = 'stego_output.png') {
+  const a = document.createElement('a');
+  a.download = filename;
+
+  if (typeof dataUrlOrBlob === 'string') {
+    // Data URL langsung digunakan sebagai href
+    a.href = dataUrlOrBlob;
+  } else {
+    // Blob: buat object URL sementara, lalu revoke setelah klik
+    const objectUrl = URL.createObjectURL(dataUrlOrBlob);
+    a.href = objectUrl;
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
+  // Trigger download tanpa membuka tab baru
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

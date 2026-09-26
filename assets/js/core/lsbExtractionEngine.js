@@ -1,11 +1,13 @@
 // core/lsbExtractionEngine.js
-// Reads the LSB of the pixel channel at each position produced by
-// pixelPositionSelector.js and reassembles the bit stream.
 //
-// NOT IMPLEMENTED YET.
-//   extract(pixelBuffer, positions, bitCount) -> number[] (bit array)
+// Re-ekspor extractBits dari lsbEmbeddingEngine sebagai interface publik
+// untuk controller extraction.
+//
+// Desain: embedding dan extraction menggunakan fungsi yang simetris.
+// extractBits() terdefinisi di lsbEmbeddingEngine.js agar kedua operasi
+// berada dalam satu modul yang terdokumentasi bersama (operasi & balik-operasi).
+//
+// Interface publik:
+//   extract(stegoImageData, slotSequence) → Uint8Array (bit 0/1)
 
-export function extract(_pixelBuffer, _positions, _bitCount) {
-  console.warn('[core/lsbExtractionEngine] extract() is not implemented yet');
-  return [];
-}
+export { extractBits as extract } from './lsbEmbeddingEngine.js';

@@ -47,11 +47,31 @@ function _renderPreviews(state) {
 
   if (state.analysisResult) {
     const r = state.analysisResult;
-    if (dom.mseValue)       dom.mseValue.textContent       = r.mse   !== null ? r.mse.toFixed(4)  : '—';
-    if (dom.psnrValue)      dom.psnrValue.textContent      = r.psnr  !== null ? r.psnr.toFixed(2) + ' dB' : '—';
-    if (dom.fileDeltaValue) dom.fileDeltaValue.textContent = r.fileSizeDeltaKb !== null
-      ? (r.fileSizeDeltaKb >= 0 ? '+' : '') + r.fileSizeDeltaKb.toFixed(1) + ' KB' : '—';
-    if (dom.summaryText)    dom.summaryText.textContent    = r.summary || '';
+
+    if (dom.mseValue) {
+      dom.mseValue.textContent = r.mse !== null && r.mse !== undefined
+        ? Number(r.mse).toFixed(4) : '—';
+      dom.mseValue.className = 'metric-value' + (r.psnr > 50 ? ' good' : '');
+    }
+
+    if (dom.psnrValue) {
+      if (r.psnr !== null && r.psnr !== undefined) {
+        dom.psnrValue.textContent = isFinite(r.psnr)
+          ? Number(r.psnr).toFixed(2) + ' dB' : '∞ dB';
+      } else {
+        dom.psnrValue.textContent = '—';
+      }
+      dom.psnrValue.className = 'metric-value' + (r.psnr > 50 ? ' good' : '');
+    }
+
+    if (dom.fileDeltaValue && r.fileSizeDeltaKb !== null && r.fileSizeDeltaKb !== undefined) {
+      const delta = Number(r.fileSizeDeltaKb);
+      dom.fileDeltaValue.textContent = (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' KB';
+    } else if (dom.fileDeltaValue) {
+      dom.fileDeltaValue.textContent = '—';
+    }
+
+    if (dom.summaryText) dom.summaryText.textContent = r.summary || '';
   }
 }
 

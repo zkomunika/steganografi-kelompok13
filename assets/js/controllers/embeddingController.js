@@ -1,20 +1,31 @@
 // controllers/embeddingController.js
-// Application layer for the Embedding page.
 //
-// Responsibilities:
-//   • Wire all DOM inputs (dropzone, textarea, password, button) to handlers.
-//   • Read real files via fileService and store decoded ImageData in state.
-//   • Update preview images, metadata labels, and the capacity bar reactively.
-//   • Validate all inputs before allowing the Embed button to proceed.
-//   • Does NOT implement embedding logic — that belongs to core/.
+// Application layer untuk halaman Embedding.
+// Mengorkestrasi seluruh pipeline embedding tanpa mengandung logika algoritma.
+//
+// Pipeline (sesuai spesifikasi Checkpoint 3):
+//   Input validation
+//   → Encode message (messageBitConverter)
+//   → Generate PRNG sequence from Stego-Key (prngStegoKeyGenerator)
+//   → Select pixel positions (pixelPositionSelector)
+//   → Embed bits into RGB LSB (lsbEmbeddingEngine)
+//   → Encode result to PNG (imageHandler)
+//   → Calculate MSE/PSNR (mseCalculator / psnrCalculator)
+//   → Update application state
+//   → Update UI
 
 import { getState, setState, batchSetState, subscribe } from '../state.js';
 import { pickImageFile, readImageFile } from '../services/fileService.js';
-import { decodeImage, getCapacityInfo } from '../core/imageHandler.js';
-import { getRequiredBits, messageToBits } from '../core/messageBitConverter.js';
-import { ERROR } from '../constants.js';
-import { CONFIG } from '../config.js';
-import { showError, clearError } from '../utils/uiHelpers.js';
+import { decodeImage, encodeImageToPng, getCapacityInfo } from '../core/imageHandler.js';
+import { messageToBits }                                   from '../core/messageBitConverter.js';
+import { generateSlotSequence }                            from '../core/pixelPositionSelector.js';
+import { embedBits }                                       from '../core/lsbEmbeddingEngine.js';
+import { calculateMSE }                                    from '../evaluation/mseCalculator.js';
+import { calculatePSNR, formatPSNR }                       from '../evaluation/psnrCalculator.js';
+import { downloadImage }                                   from '../utils/imageFileHandler.js';
+import { showError, clearError }                           from '../utils/uiHelpers.js';
+import { ERROR }                                           from '../constants.js';
+import { CONFIG }                                          from '../config.js';
 
 // ---------------------------------------------------------------------------
 // DOM cache
@@ -54,6 +65,9 @@ function cacheDom() {
   dom.mseValue       = page.querySelector('#emb-mse');
   dom.psnrValue      = page.querySelector('#emb-psnr');
   dom.fileSizeValue  = page.querySelector('#emb-filesize');
+
+  // Stepper
+  dom.stepper        = page.querySelector('.stepper');
 }
 
 // ---------------------------------------------------------------------------
@@ -65,25 +79,17 @@ async function handlePickCoverImage() {
     const file = await pickImageFile();
     const meta = await readImageFile(file);   // validates + decodes pixels
 
-    // Store in state
     batchSetState({
       coverImage:      meta,
       embeddingResult: null,
       stegoImage:      null,
     });
 
-    // Update dropzone label
-    if (dom.fname) {
-      dom.fname.textContent = `${meta.name} · ${meta.width}×${meta.height}`;
-    }
+    if (dom.fname) dom.fname.textContent = `${meta.name} · ${meta.width}×${meta.height}`;
 
-    // Show real image preview
     _renderCoverPreview(meta);
-
-    // Update metadata panel
     _renderMetadata(meta);
-
-    // Re-evaluate capacity (message may already be typed)
+    _resetResultPanel();
     _updateCapacity();
 
   } catch (err) {
@@ -92,11 +98,9 @@ async function handlePickCoverImage() {
   }
 }
 
-// Drag-and-drop support
 function handleDrop(event) {
   event.preventDefault();
   dom.dropzone.classList.remove('dragover');
-
   const file = event.dataTransfer.files && event.dataTransfer.files[0];
   if (!file) return;
 
@@ -106,34 +110,25 @@ function handleDrop(event) {
       if (dom.fname) dom.fname.textContent = `${meta.name} · ${meta.width}×${meta.height}`;
       _renderCoverPreview(meta);
       _renderMetadata(meta);
+      _resetResultPanel();
       _updateCapacity();
     })
-    .catch((err) => {
-      showError(dom.page, err.message);
-    });
+    .catch((err) => showError(dom.page, err.message));
 }
 
 // ---------------------------------------------------------------------------
-// Message input
+// Message & key inputs
 // ---------------------------------------------------------------------------
 function handleMessageInput() {
   const message = dom.message ? dom.message.value : '';
   const bits    = message.length > 0 ? messageToBits(message) : [];
 
-  batchSetState({
-    secretMessage: message,
-    messageBits:   bits,
-  });
-
+  batchSetState({ secretMessage: message, messageBits: bits });
   _updateCapacity();
 }
 
-// ---------------------------------------------------------------------------
-// Stego-Key input (in-memory only; never persisted)
-// ---------------------------------------------------------------------------
 function handleKeyInput() {
-  const key = dom.stegoKey ? dom.stegoKey.value : '';
-  setState('stegoKey', key);
+  setState('stegoKey', dom.stegoKey ? dom.stegoKey.value : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -149,20 +144,18 @@ function _updateCapacity() {
 
   const info = getCapacityInfo(decodedImage, st.messageBits);
   setState('capacity', info);
-
   _renderCapacityBar(info, st.secretMessage, decodedImage);
 }
 
 function _renderCapacityBar(info, message, decodedImage) {
   if (!dom.capacityFill || !dom.capacityHelp) return;
 
-  const pct          = info.pct;
-  const usedChars    = message ? message.length : 0;
-  const totalChars   = decodedImage
-    ? Math.floor((decodedImage.width * decodedImage.height * 3) / 8) - 4  // minus 4-byte header
+  const pct        = info.pct;
+  const usedChars  = message ? message.length : 0;
+  const totalChars = decodedImage
+    ? Math.floor((decodedImage.width * decodedImage.height * 3) / 8) - 4
     : 0;
 
-  // Colour thresholds
   let colour = 'var(--accent)';
   if (pct >= CONFIG.capacityThresholds.danger) colour = 'var(--warn)';
   else if (pct >= CONFIG.capacityThresholds.warn) colour = '#D08B3A';
@@ -170,117 +163,253 @@ function _renderCapacityBar(info, message, decodedImage) {
   dom.capacityFill.style.width      = `${Math.min(pct, 100)}%`;
   dom.capacityFill.style.background = colour;
 
-  if (decodedImage === null) {
+  if (!decodedImage) {
     dom.capacityHelp.textContent = 'Upload cover image untuk melihat kapasitas.';
     return;
   }
-
   if (usedChars === 0) {
-    dom.capacityHelp.textContent =
-      `Kapasitas tersedia: ~${totalChars.toLocaleString()} karakter.`;
+    dom.capacityHelp.textContent = `Kapasitas tersedia: ~${totalChars.toLocaleString()} karakter.`;
     return;
   }
 
-  const status = info.valid
+  dom.capacityHelp.textContent = info.valid
     ? `${usedChars.toLocaleString()} / ${totalChars.toLocaleString()} karakter (${pct}% kapasitas)`
     : `⚠ Pesan terlalu panjang (${usedChars.toLocaleString()} / ${totalChars.toLocaleString()} karakter)`;
-
-  dom.capacityHelp.textContent = status;
 }
 
 // ---------------------------------------------------------------------------
-// Preview helpers
+// Validation
+// ---------------------------------------------------------------------------
+export function validateEmbeddingInputs() {
+  const st = getState();
+  if (!st.coverImage || !st.coverImage.imageData) throw new Error(ERROR.NO_IMAGE);
+  if (!st.secretMessage || st.secretMessage.trim().length === 0) throw new Error(ERROR.EMPTY_MESSAGE);
+  if (!st.stegoKey || st.stegoKey.trim().length === 0) throw new Error(ERROR.EMPTY_KEY);
+  if (st.capacity && !st.capacity.valid && st.capacity.usedBits > 0) throw new Error(ERROR.MESSAGE_TOO_LONG);
+}
+
+// ---------------------------------------------------------------------------
+// Embed pipeline
+// ---------------------------------------------------------------------------
+async function handleEmbed() {
+  clearError(dom.page);
+
+  // 1. Input validation
+  try {
+    validateEmbeddingInputs();
+  } catch (err) {
+    showError(dom.page, err.message);
+    return;
+  }
+
+  // Disable button selama proses berjalan
+  if (dom.embedBtn) {
+    dom.embedBtn.disabled    = true;
+    dom.embedBtn.textContent = 'Memproses…';
+  }
+
+  try {
+    const st = getState();
+
+    // 2. Decode cover image ke pixel buffer
+    const coverDecoded  = decodeImage(st.coverImage);
+    const coverImageData = coverDecoded.imageData;
+    const totalSlots    = coverDecoded.width * coverDecoded.height * 3;
+
+    // 3. Encode message → bit array
+    //    Skema: [32-bit length prefix][UTF-8 payload] — MSB first per byte
+    const bits      = messageToBits(st.secretMessage);
+    const bitCount  = bits.length;
+
+    // 4. Generate PRNG-based slot sequence dari Stego-Key
+    //    (Fisher-Yates dengan Xorshift32 — tidak ada Math.random())
+    const slotSequence = generateSlotSequence(st.stegoKey, totalSlots, bitCount);
+
+    // 5. LSB Embedding: P' = (P & 254) | b
+    //    Menghasilkan ImageData baru; cover image tidak termutasi
+    const stegoImageData = embedBits(coverImageData, bits, slotSequence);
+
+    // 6. Encode stego ImageData → PNG data URL
+    const stegoDataUrl = await encodeImageToPng(stegoImageData);
+
+    // 7. Hitung MSE dan PSNR
+    const mse  = calculateMSE(coverImageData, stegoImageData);
+    const psnr = calculatePSNR(mse);
+
+    // 8. Bangun metadata stego image
+    const stegoMeta = {
+      name:      'stego_' + st.coverImage.name.replace(/\.[^.]+$/, '') + '.png',
+      // Ukuran file stego (estimasi dari data URL length)
+      size:      Math.round(stegoDataUrl.length * 0.75),  // base64 → bytes approx
+      width:     coverDecoded.width,
+      height:    coverDecoded.height,
+      format:    'png',
+      channels:  3,
+      dataUrl:   stegoDataUrl,
+      imageData: stegoImageData,
+    };
+
+    // 9. Update state
+    const embeddingResult = {
+      success:         true,
+      mse,
+      psnr,
+      bitsEmbedded:    bitCount,
+      totalSlots,
+      stegoImageData,
+    };
+
+    batchSetState({
+      stegoImage:      stegoMeta,
+      embeddingResult,
+      analysisResult: {
+        mse,
+        psnr,
+        fileSizeDeltaKb: ((stegoMeta.size - st.coverImage.size) / 1024).toFixed(1) * 1,
+        summary: _buildAnalysisSummary(mse, psnr, bitCount, coverDecoded),
+      },
+    });
+
+    // 10. Update UI
+    _renderStegoPreview(stegoMeta);
+    _renderResultMetrics(mse, psnr, stegoMeta, st.coverImage);
+    _updateStepperToResult();
+
+    if (dom.downloadBtn) dom.downloadBtn.disabled = false;
+
+    console.info(
+      `[EmbeddingController] Embedding selesai — ` +
+      `${bitCount} bit disisipkan ke ${bitCount} slot acak dari ${totalSlots} slot tersedia. ` +
+      `MSE=${mse.toFixed(4)}, PSNR=${formatPSNR(psnr)}`
+    );
+
+  } catch (err) {
+    showError(dom.page, err.message);
+    console.error('[EmbeddingController] Pipeline error:', err);
+  } finally {
+    if (dom.embedBtn) {
+      dom.embedBtn.disabled    = false;
+      dom.embedBtn.textContent = 'Embed Message';
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Download
+// ---------------------------------------------------------------------------
+function handleDownload() {
+  const st = getState();
+  if (!st.stegoImage || !st.stegoImage.dataUrl) {
+    showError(dom.page, 'Stego image belum tersedia. Lakukan embedding terlebih dahulu.');
+    return;
+  }
+  downloadImage(st.stegoImage.dataUrl, st.stegoImage.name);
+}
+
+// ---------------------------------------------------------------------------
+// UI render helpers
 // ---------------------------------------------------------------------------
 function _renderCoverPreview(meta) {
   if (!dom.coverPreview) return;
-
-  // Replace placeholder text with a real <img>
   dom.coverPreview.innerHTML = '';
-  const img  = document.createElement('img');
-  img.src    = meta.dataUrl;
-  img.alt    = 'Cover Image';
+  const img = document.createElement('img');
+  img.src   = meta.dataUrl;
+  img.alt   = 'Cover Image';
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
   dom.coverPreview.appendChild(img);
+  if (dom.coverDimLabel) dom.coverDimLabel.textContent = `${meta.width}×${meta.height}`;
+}
 
-  if (dom.coverDimLabel) {
-    dom.coverDimLabel.textContent = `${meta.width}×${meta.height}`;
-  }
+function _renderStegoPreview(meta) {
+  if (!dom.stegoPreview) return;
+  dom.stegoPreview.innerHTML = '';
+  const img = document.createElement('img');
+  img.src   = meta.dataUrl;
+  img.alt   = 'Stego Image';
+  img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
+  dom.stegoPreview.appendChild(img);
+  if (dom.stegoDimLabel) dom.stegoDimLabel.textContent = `${meta.width}×${meta.height}`;
 }
 
 function _renderMetadata(meta) {
   const fmt = (el, val) => { if (el) el.textContent = val; };
-
   fmt(dom.metaWidth,    meta.width  + ' px');
   fmt(dom.metaHeight,   meta.height + ' px');
   fmt(dom.metaFormat,   meta.format.toUpperCase());
-  fmt(dom.metaSize,     _formatBytes(meta.size));
+  fmt(dom.metaSize,     _fmtBytes(meta.size));
   fmt(dom.metaChannels, 'RGB (3 ch)');
-
-  // Reveal the metadata panel (it starts hidden)
   if (dom.metaPanel) dom.metaPanel.style.display = 'block';
 }
 
-function _formatBytes(bytes) {
-  if (bytes < 1024)       return bytes + ' B';
+function _renderResultMetrics(mse, psnr, stegoMeta, coverMeta) {
+  const fmt = (el, val, cls) => {
+    if (!el) return;
+    el.textContent = val;
+    if (cls) el.className = 'metric-value ' + cls;
+  };
+
+  const psnrGood = psnr > 50;
+  fmt(dom.mseValue,      mse.toFixed(4),  psnrGood ? 'good' : '');
+  fmt(dom.psnrValue,     formatPSNR(psnr), psnrGood ? 'good' : '');
+
+  const deltaKb = ((stegoMeta.size - coverMeta.size) / 1024).toFixed(1);
+  const deltaStr = deltaKb >= 0 ? `+${deltaKb} KB` : `${deltaKb} KB`;
+  fmt(dom.fileSizeValue, deltaStr, '');
+}
+
+function _resetResultPanel() {
+  const fmt = (el, val) => { if (el) { el.textContent = val; el.className = 'metric-value'; } };
+  fmt(dom.mseValue,      '—');
+  fmt(dom.psnrValue,     '—');
+  fmt(dom.fileSizeValue, '—');
+
+  if (dom.stegoPreview) {
+    dom.stegoPreview.innerHTML = 'Hasil embedding';
+  }
+  if (dom.stegoDimLabel) dom.stegoDimLabel.textContent = '—';
+  if (dom.downloadBtn)   dom.downloadBtn.disabled = true;
+}
+
+function _updateStepperToResult() {
+  // Tandai stepper: step Input → done, step Process → done, step Result → current
+  if (!dom.stepper) return;
+  const steps = dom.stepper.querySelectorAll('.step');
+  // steps[0]=Input, steps[1]=Process, steps[2]=Result, steps[3]=Analysis
+  steps.forEach((s, i) => {
+    s.classList.remove('done', 'current');
+    if (i < 2)      { s.classList.add('done');    s.querySelector('.step-dot').textContent = '✓'; }
+    else if (i === 2) { s.classList.add('current'); }
+  });
+}
+
+function _buildAnalysisSummary(mse, psnr, bitCount, decoded) {
+  const totalPx   = decoded.width * decoded.height;
+  const psnrStr   = isFinite(psnr) ? psnr.toFixed(2) + ' dB' : '∞ dB';
+  const threshold = psnr > 50 ? 'jauh di atas' : 'di atas';
+  const charCount = Math.round(bitCount / 8) - 4;   // minus 4-byte header
+
+  return (
+    `Nilai PSNR sebesar ${psnrStr} berada ${threshold} ambang persepsi visual manusia ` +
+    `(umumnya >40 dB), menunjukkan bahwa penyisipan ${charCount} karakter pesan ` +
+    `pada citra ${decoded.width}×${decoded.height} (${totalPx.toLocaleString()} piksel) ` +
+    `tidak menghasilkan distorsi yang kasat mata. ` +
+    `Nilai MSE ${mse.toFixed(4)} mencerminkan perubahan LSB yang sangat minimal (±1 per channel).`
+  );
+}
+
+function _fmtBytes(bytes) {
+  if (!bytes) return '—';
+  if (bytes < 1024)        return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
 }
 
 // ---------------------------------------------------------------------------
-// Validation (called before embedding)
-// ---------------------------------------------------------------------------
-export function validateEmbeddingInputs() {
-  const st = getState();
-
-  if (!st.coverImage || !st.coverImage.imageData) {
-    throw new Error(ERROR.NO_IMAGE);
-  }
-  if (!st.secretMessage || st.secretMessage.trim().length === 0) {
-    throw new Error(ERROR.EMPTY_MESSAGE);
-  }
-  if (!st.stegoKey || st.stegoKey.trim().length === 0) {
-    throw new Error(ERROR.EMPTY_KEY);
-  }
-  if (st.capacity && !st.capacity.valid && st.capacity.usedBits > 0) {
-    throw new Error(ERROR.MESSAGE_TOO_LONG);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Embed button  (embedding logic will be added in next checkpoint)
-// ---------------------------------------------------------------------------
-function handleEmbed() {
-  clearError(dom.page);
-  try {
-    validateEmbeddingInputs();
-    // Embedding logic (core/lsbEmbeddingEngine.js) will be called here
-    // in the next checkpoint. For now we confirm inputs are valid.
-    console.info('[EmbeddingController] Validasi input berhasil. Siap untuk embedding.');
-    // Show a "not yet implemented" note without error styling
-    if (dom.capacityHelp) {
-      dom.capacityHelp.textContent += ' — ✓ Siap embed (implementasi berikutnya).';
-    }
-  } catch (err) {
-    showError(dom.page, err.message);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// State subscription → keep UI in sync when state changes from outside
+// State subscription → sync UI bila state berubah dari luar (mis. analisis)
 // ---------------------------------------------------------------------------
 function onStateChange(state, path) {
-  // If stegoImage is set by the embedding pipeline (future checkpoint)
-  if (path === 'stegoImage' || path === '_batch') {
-    const meta = state.stegoImage;
-    if (meta && dom.stegoPreview) {
-      dom.stegoPreview.innerHTML = '';
-      const img  = document.createElement('img');
-      img.src    = meta.dataUrl;
-      img.alt    = 'Stego Image';
-      img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
-      dom.stegoPreview.appendChild(img);
-      if (dom.stegoDimLabel) dom.stegoDimLabel.textContent = `${meta.width}×${meta.height}`;
-    }
+  if (path === 'stegoImage' && state.stegoImage && dom.stegoPreview) {
+    _renderStegoPreview(state.stegoImage);
   }
 }
 
@@ -292,29 +421,30 @@ export function initEmbeddingController() {
 
   if (dom.dropzone) {
     dom.dropzone.addEventListener('click', handlePickCoverImage);
-    dom.dropzone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dom.dropzone.classList.add('dragover');
-    });
-    dom.dropzone.addEventListener('dragleave', () => {
-      dom.dropzone.classList.remove('dragover');
-    });
+    dom.dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dom.dropzone.classList.add('dragover'); });
+    dom.dropzone.addEventListener('dragleave', () => dom.dropzone.classList.remove('dragover'));
     dom.dropzone.addEventListener('drop', handleDrop);
   }
 
   if (dom.message) {
     dom.message.addEventListener('input', handleMessageInput);
-    // Initialise from current state (should be empty)
     dom.message.value = getState().secretMessage;
     handleMessageInput();
   }
 
   if (dom.stegoKey) {
     dom.stegoKey.addEventListener('input', handleKeyInput);
-    dom.stegoKey.value = getState().stegoKey;
+    dom.stegoKey.value = '';
   }
 
   if (dom.embedBtn)    dom.embedBtn.addEventListener('click', handleEmbed);
+  if (dom.downloadBtn) {
+    dom.downloadBtn.addEventListener('click', handleDownload);
+    dom.downloadBtn.disabled = true;   // aktif hanya setelah embedding berhasil
+  }
+  if (dom.analysisBtn) {
+    // analysisBtn sudah punya data-goto="analysis" dari HTML, ditangani navigationService
+  }
 
   subscribe(onStateChange);
 }
