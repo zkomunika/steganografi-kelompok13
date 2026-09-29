@@ -384,17 +384,26 @@ function _updateStepperToResult() {
 
 function _buildAnalysisSummary(mse, psnr, bitCount, decoded) {
   const totalPx   = decoded.width * decoded.height;
+  const totalSlot = totalPx * 3;                      // 3 channel RGB
+  const charCount = Math.round(bitCount / 8) - 4;    // dikurangi 4-byte header
   const psnrStr   = isFinite(psnr) ? psnr.toFixed(2) + ' dB' : '∞ dB';
-  const threshold = psnr > 50 ? 'jauh di atas' : 'di atas';
-  const charCount = Math.round(bitCount / 8) - 4;   // minus 4-byte header
+  const usedPct   = ((bitCount / totalSlot) * 100).toFixed(2);
 
+  // Ringkasan faktual — tidak mengandung klaim kualitas atau threshold
   return (
-    `Nilai PSNR sebesar ${psnrStr} berada ${threshold} ambang persepsi visual manusia ` +
-    `(umumnya >40 dB), menunjukkan bahwa penyisipan ${charCount} karakter pesan ` +
-    `pada citra ${decoded.width}×${decoded.height} (${totalPx.toLocaleString()} piksel) ` +
-    `tidak menghasilkan distorsi yang kasat mata. ` +
-    `Nilai MSE ${mse.toFixed(4)} mencerminkan perubahan LSB yang sangat minimal (±1 per channel).`
+    `Embedding selesai pada citra ${decoded.width}×${decoded.height} px ` +
+    `(${totalPx.toLocaleString()} piksel, ${totalSlot.toLocaleString()} slot RGB tersedia). ` +
+    `Jumlah bit yang disisipkan: ${bitCount.toLocaleString()} bit (${charCount} karakter + 4-byte header), ` +
+    `menggunakan ${usedPct}% kapasitas slot. ` +
+    `Hasil kalkulasi: MSE = ${_formatMSEValue(mse)}, PSNR = ${psnrStr}.`
   );
+}
+
+function _formatMSEValue(mse) {
+  if (mse === 0)    return '0';
+  if (mse < 0.001)  return mse.toExponential(4);
+  if (mse < 1)      return mse.toFixed(6);
+  return mse.toFixed(4);
 }
 
 function _fmtBytes(bytes) {
