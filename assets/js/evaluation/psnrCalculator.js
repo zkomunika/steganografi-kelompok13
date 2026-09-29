@@ -34,6 +34,9 @@
 // ── Interface ─────────────────────────────────────────────────────────────────
 //   calculatePSNR(mse, maxPixelValue?) → number | Infinity
 //   formatPSNR(psnr, decimals?)        → string  ("74.88 dB" atau "∞ dB")
+//   classifyPSNR(psnr, thresholdDb?)   → { meets, label }  (ambang juknis 30 dB)
+
+import { CONFIG } from '../config.js';
 
 /**
  * Hitung PSNR dari nilai MSE menggunakan rumus penelitian:
@@ -71,4 +74,25 @@ export function calculatePSNR(mse, maxPixelValue = 255) {
 export function formatPSNR(psnr, decimals = 2) {
   if (!isFinite(psnr)) return '∞ dB';
   return psnr.toFixed(decimals) + ' dB';
+}
+
+/**
+ * Klasifikasi kualitas terhadap ambang juknis (default CONFIG.psnrThresholdDb = 30 dB).
+ *   PSNR ≥ ambang → "Baik (≥ 30 dB)"
+ *   PSNR <  ambang → "Di bawah ambang 30 dB"
+ * PSNR = ∞ (citra identik) dianggap memenuhi ambang.
+ *
+ * @param {number} psnr
+ * @param {number} [thresholdDb]
+ * @returns {{meets:boolean, label:string, thresholdDb:number}}
+ */
+export function classifyPSNR(psnr, thresholdDb = CONFIG.psnrThresholdDb) {
+  const meets = psnr >= thresholdDb;   // Infinity >= 30 → true
+  return {
+    meets,
+    thresholdDb,
+    label: meets
+      ? `Baik (≥ ${thresholdDb} dB)`
+      : `Di bawah ambang ${thresholdDb} dB`,
+  };
 }

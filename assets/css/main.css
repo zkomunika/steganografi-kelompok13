@@ -635,6 +635,139 @@ tr.highlight td {
   cursor: not-allowed;
 }
 
+/* Analysis — steganalisis (histogram, bidang LSB, chi-square) */
+.card-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.ana-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.ana-hist-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.ana-hist-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.ana-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.ana-table th,
+.ana-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+}
+
+.ana-table th:first-child,
+.ana-table td:first-child {
+  text-align: left;
+}
+
+.ana-table th {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.ana-table .ana-empty {
+  text-align: left;
+  color: var(--ink-soft);
+}
+
+.ana-note {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  line-height: 1.65;
+  margin: 12px 0 0;
+}
+
+.ana-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.ana-tab {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.ana-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ana-lsb-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.ana-fig {
+  margin: 0;
+}
+
+.ana-fig figcaption {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.ana-plane {
+  image-rendering: pixelated;
+  background: #000;
+}
+
+.metric-value.ana-small {
+  font-size: 13px;
+}
+
+.metric-value.warn {
+  color: var(--warn);
+}
+
+@media (max-width: 720px) {
+  .ana-hist-head,
+  .ana-hist-grid,
+  .ana-lsb-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0F1115;

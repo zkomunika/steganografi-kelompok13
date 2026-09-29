@@ -1,0 +1,29 @@
+# ── Dependency ───────────────────────────────────────────────
+node_modules/
+
+# ── Rahasia: kunci, sandi, kredensial (JANGAN pernah di-commit) ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+secrets/
+
+# ── Hasil uji sementara & ekspor ─────────────────────────────
+# (dataset uji permanen disimpan di test-data/, yang TIDAK diabaikan)
+test-output/
+test-results/
+exports/
+tmp/
+*.log
+
+# ── Berkas sistem & editor ───────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

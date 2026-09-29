@@ -1,0 +1,13 @@
+{
+  "name": "lsb-steganography-app",
+  "version": "0.1.0",
+  "description": "Aplikasi steganografi LSB (PNG/BMP) dengan PRNG berbasis Stego-Key dan enkripsi AES-256-GCM",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

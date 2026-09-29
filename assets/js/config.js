@@ -16,6 +16,9 @@ export const CONFIG = {
     defaultQuality: 70,
   },
 
+  // Ambang kualitas PSNR sesuai juknis (dB). PSNR ≥ ambang → "baik".
+  psnrThresholdDb: 30,
+
   // Capacity bar colours (percentage thresholds)
   capacityThresholds: {
     warn:  75,   // turn amber at 75 %

@@ -274,7 +274,7 @@
         <div class="card-title">Metrik Kualitas Citra</div>
         <div class="metrics">
           <div class="metric"><div class="metric-label">MSE</div><div class="metric-value" id="ana-mse">—</div></div>
-          <div class="metric"><div class="metric-label">PSNR</div><div class="metric-value" id="ana-psnr">—</div></div>
+          <div class="metric"><div class="metric-label">PSNR</div><div class="metric-value" id="ana-psnr">—</div><div class="metric-note" id="ana-psnr-note"></div></div>
           <div class="metric"><div class="metric-label">Selisih Ukuran File</div><div class="metric-value" id="ana-filedelta">—</div></div>
         </div>
       </div>
@@ -282,6 +282,66 @@
         <div class="card-title">Ringkasan Perubahan</div>
         <p id="ana-summary" style="font-size:12.5px;color:var(--ink-soft);line-height:1.7;margin:0;">
           Lakukan proses Embedding terlebih dahulu untuk melihat ringkasan analisis citra.
+        </p>
+      </div>
+
+      <!-- Steganalisis: histogram, bidang LSB, chi-square -->
+      <div class="card">
+        <div class="card-title"><span>Histogram RGB</span><span class="card-sub">256 bin per kanal · skala vertikal sama untuk cover &amp; stego</span></div>
+        <div class="ana-hist-head"><span>Cover Image</span><span>Stego Image</span></div>
+        <div class="ana-hist-grid">
+          <canvas id="ana-hist-cover-r" class="ana-canvas" aria-label="Histogram R cover"></canvas>
+          <canvas id="ana-hist-stego-r" class="ana-canvas" aria-label="Histogram R stego"></canvas>
+          <canvas id="ana-hist-cover-g" class="ana-canvas" aria-label="Histogram G cover"></canvas>
+          <canvas id="ana-hist-stego-g" class="ana-canvas" aria-label="Histogram G stego"></canvas>
+          <canvas id="ana-hist-cover-b" class="ana-canvas" aria-label="Histogram B cover"></canvas>
+          <canvas id="ana-hist-stego-b" class="ana-canvas" aria-label="Histogram B stego"></canvas>
+        </div>
+        <table class="ana-table">
+          <thead><tr><th>Kanal</th><th>Bin berubah</th><th>Selisih maks. per bin</th><th>Σ|Δ| (piksel)</th></tr></thead>
+          <tbody id="ana-hist-summary">
+            <tr><td colspan="4" class="ana-empty">Belum ada data.</td></tr>
+          </tbody>
+        </table>
+        <p class="ana-note" id="ana-hist-total"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>Bidang LSB (Enhanced LSB)</span><span class="card-sub">bit 0 → hitam · bit 1 → putih</span></div>
+        <div class="ana-tabs" id="ana-lsb-tabs" role="tablist" aria-label="Kanal bidang LSB">
+          <button type="button" class="ana-tab" data-channel="r" role="tab">R</button>
+          <button type="button" class="ana-tab" data-channel="g" role="tab">G</button>
+          <button type="button" class="ana-tab" data-channel="b" role="tab">B</button>
+          <button type="button" class="ana-tab active" data-channel="rgb" role="tab">RGB</button>
+        </div>
+        <div class="ana-lsb-grid">
+          <figure class="ana-fig"><figcaption>LSB Cover</figcaption><canvas id="ana-lsb-cover" class="ana-canvas ana-plane"></canvas></figure>
+          <figure class="ana-fig"><figcaption>LSB Stego</figcaption><canvas id="ana-lsb-stego" class="ana-canvas ana-plane"></canvas></figure>
+          <figure class="ana-fig"><figcaption>LSB yang berubah</figcaption><canvas id="ana-lsb-diff" class="ana-canvas ana-plane"></canvas></figure>
+        </div>
+        <div class="metrics" style="margin-top:14px;">
+          <div class="metric"><div class="metric-label">LSB berubah (kanal terpilih)</div><div class="metric-value" id="ana-lsb-pct">—</div><div class="metric-note" id="ana-lsb-count"></div></div>
+          <div class="metric"><div class="metric-label">Per kanal R / G / B</div><div class="metric-value ana-small" id="ana-lsb-perch">—</div></div>
+          <div class="metric"><div class="metric-label">Sebaran (grid 4×4)</div><div class="metric-value" id="ana-lsb-spread">—</div><div class="metric-note">blok yang memuat perubahan</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span>Uji Chi-Square Westfeld–Pfitzmann</span><span class="card-sub">pasangan nilai (2k, 2k+1)</span></div>
+        <table class="ana-table">
+          <thead>
+            <tr><th rowspan="2">Kanal</th><th colspan="3">Cover</th><th colspan="3">Stego</th></tr>
+            <tr><th>χ²</th><th>df</th><th>p-value</th><th>χ²</th><th>df</th><th>p-value</th></tr>
+          </thead>
+          <tbody id="ana-chi-body">
+            <tr><td colspan="7" class="ana-empty">Belum ada data.</td></tr>
+          </tbody>
+        </table>
+        <p class="ana-note">
+          p-value = peluang χ² ≥ nilai teramati bila frekuensi tiap pasangan (2k, 2k+1) sama. p tinggi berarti pasangan
+          sangat seimbang (sesuai LSB yang terisi acak); p rendah berarti tidak seimbang. Uji ini dijalankan pada
+          seluruh citra, sehingga pesan pendek yang hanya mengubah sebagian kecil LSB cenderung sulit dibedakan dari cover.
+          Hasil ini indikator statistik, bukan bukti ada atau tidaknya pesan.
         </p>
       </div>
     </section>
