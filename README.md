@@ -28,6 +28,7 @@ Karena aplikasi ini menggunakan ES Modules (`import`/`export` di JavaScript), ap
    npx serve
    ```
 3. Buka browser dan akses alamat URL yang tertera di terminal (biasanya `http://localhost:3000`).
+
 *Catatan: Disarankan untuk tidak menggunakan browser Brave atau Firefox untuk menjalakannya karena adanya resistFingerprinting dan farbling yang akan merusak LSB pada pengujian batch sehingga menyebabkan semua pengujian menjadi gagal*
 
 ## Contoh Penggunaan
