@@ -54,10 +54,11 @@ const _state = {
 
   // ── Extraction (for JPEG page) ────────────────────────────────────────────
   jpegStegoImage:  null,  // ImageMetadata | null
-  jpegKey:         '',    // key on the JPEG test page
+  jpegKey:         '',    // Stego-Key on the JPEG test page
+  jpegEncKey:      '',    // Kunci Enkripsi on the JPEG test page (opsional; kosong → hanya bit accuracy)
   qualityFactor:   70,
-  jpegTestResult:  null,  // { jpegDataUrl, extractedMessage, bitAccuracyBefore, bitAccuracyAfter } | null
-  jpegTestHistory: [],    // row[]
+  jpegTestResult:  null,  // hasil QF terakhir: { qf, imageName, jpegDataUrl, bitAccBefore, bitAccAfter, status, ... } | null
+  jpegTestHistory: [],    // row[] (terbaru di depan); dikosongkan saat gambar atau kunci berganti
 
   // ── Analysis ──────────────────────────────────────────────────────────────
   analysisResult: null,   // { mse, psnr, fileSizeDeltaKb, summary } | null

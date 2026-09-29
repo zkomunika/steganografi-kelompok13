@@ -384,6 +384,11 @@
               <input type="password" id="jpeg-key" placeholder="Masukkan Stego-Key…" autocomplete="off">
             </div>
             <div class="field">
+              <label>Kunci Enkripsi (opsional)</label>
+              <input type="password" id="jpeg-enc-key" placeholder="Kosongkan bila hanya ingin bit accuracy…" autocomplete="off">
+              <div class="help">Bila diisi, status berhasil/gagal ditentukan oleh dekripsi AES-256-GCM. Harus berbeda dari Stego-Key.</div>
+            </div>
+            <div class="field">
               <label>Quality Factor JPEG: <b id="jpeg-qf-label" style="font-family:var(--mono);">70</b></label>
               <input type="range" id="jpeg-qf-range" min="10" max="100" value="70">
               <div class="help">10 (kompresi berat) — 100 (kompresi minimal)</div>
@@ -431,9 +436,9 @@
       <div class="card">
         <div class="card-title">Tabel Hasil Pengujian — Berbagai Quality Factor</div>
         <table>
-          <thead><tr><th class="mono">QF</th><th>Status Ekstraksi</th><th class="mono">Bit Accuracy</th><th class="mono">PSNR Stego–JPEG</th></tr></thead>
+          <thead><tr><th>Gambar</th><th class="mono">QF</th><th>Status Ekstraksi</th><th class="mono">Bit Accuracy</th><th class="mono">PSNR Stego–JPEG</th></tr></thead>
           <tbody id="jpeg-history-tbody">
-            <tr><td colspan="4" style="text-align:center;color:var(--ink-soft);font-size:12px;padding:18px;">Belum ada pengujian dilakukan.</td></tr>
+            <tr><td colspan="5" style="text-align:center;color:var(--ink-soft);font-size:12px;padding:18px;">Belum ada pengujian dilakukan.</td></tr>
           </tbody>
         </table>
       </div>
