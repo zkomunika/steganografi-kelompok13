@@ -1,9 +1,9 @@
-// controllers/analysisController.js
 // Application layer for the Image Analysis page.
-// Renders cover vs stego comparison from state when analysis results are available.
-// Analysis computation (MSE/PSNR) is wired in via the next checkpoint.
+// Renders cover vs stego comparison from state and calculates MSE/PSNR metrics.
 
 import { getState, subscribe } from '../state.js';
+import { calculateMSE } from '../evaluation/mseCalculator.js';
+import { calculatePSNR, formatPSNR } from '../evaluation/psnrCalculator.js';
 
 const dom = {};
 
@@ -31,6 +31,9 @@ function _renderPreviews(state) {
     if (dom.coverSizeLabel) {
       dom.coverSizeLabel.textContent = _formatBytes(state.coverImage.size);
     }
+  } else if (dom.coverPreview) {
+    dom.coverPreview.innerHTML = 'Belum tersedia';
+    if (dom.coverSizeLabel) dom.coverSizeLabel.textContent = '—';
   }
 
   if (state.stegoImage && dom.stegoPreview) {
@@ -43,11 +46,28 @@ function _renderPreviews(state) {
     if (dom.stegoSizeLabel) {
       dom.stegoSizeLabel.textContent = _formatBytes(state.stegoImage.size);
     }
+  } else if (dom.stegoPreview) {
+    dom.stegoPreview.innerHTML = 'Belum tersedia';
+    if (dom.stegoSizeLabel) dom.stegoSizeLabel.textContent = '—';
   }
 
-  if (state.analysisResult) {
-    const r = state.analysisResult;
+  let r = state.analysisResult;
+  if (!r && state.coverImage?.imageData && state.stegoImage?.imageData) {
+    try {
+      const mse = calculateMSE(state.coverImage.imageData, state.stegoImage.imageData);
+      const psnr = calculatePSNR(mse);
+      const fileSizeDeltaKb = ((state.stegoImage.size - state.coverImage.size) / 1024);
+      const summary = `Nilai PSNR sebesar ${formatPSNR(psnr)} ` +
+        `menunjukkan kualitas visual yang ${psnr > 50 ? 'sangat tinggi (>50 dB, tidak kasat mata)' : 'terdistorsi'}. ` +
+        `Nilai MSE: ${mse.toFixed(4)}.`;
 
+      r = { mse, psnr, fileSizeDeltaKb, summary };
+    } catch (e) {
+      console.warn('[AnalysisController] Gagal menghitung MSE/PSNR:', e);
+    }
+  }
+
+  if (r) {
     if (dom.mseValue) {
       dom.mseValue.textContent = r.mse !== null && r.mse !== undefined
         ? Number(r.mse).toFixed(4) : '—';
@@ -56,8 +76,7 @@ function _renderPreviews(state) {
 
     if (dom.psnrValue) {
       if (r.psnr !== null && r.psnr !== undefined) {
-        dom.psnrValue.textContent = isFinite(r.psnr)
-          ? Number(r.psnr).toFixed(2) + ' dB' : '∞ dB';
+        dom.psnrValue.textContent = formatPSNR(r.psnr);
       } else {
         dom.psnrValue.textContent = '—';
       }
@@ -72,6 +91,11 @@ function _renderPreviews(state) {
     }
 
     if (dom.summaryText) dom.summaryText.textContent = r.summary || '';
+  } else {
+    if (dom.mseValue) { dom.mseValue.textContent = '—'; dom.mseValue.className = 'metric-value'; }
+    if (dom.psnrValue) { dom.psnrValue.textContent = '—'; dom.psnrValue.className = 'metric-value'; }
+    if (dom.fileDeltaValue) dom.fileDeltaValue.textContent = '—';
+    if (dom.summaryText) dom.summaryText.textContent = 'Lakukan proses Embedding terlebih dahulu untuk melihat ringkasan analisis citra.';
   }
 }
 
@@ -84,13 +108,12 @@ function _formatBytes(bytes) {
 
 export function initAnalysisController() {
   cacheDom();
-  // Initial render from current state
   _renderPreviews(getState());
-  // Re-render when state changes
   subscribe((state) => _renderPreviews(state));
-  console.info('[AnalysisController] ready — will render from state.coverImage / state.stegoImage / state.analysisResult.');
+  console.info('[AnalysisController] ready — rendering state.coverImage / state.stegoImage / state.analysisResult.');
 }
 
 export function getAnalysisMetrics() {
   return getState().analysisResult;
 }
+
