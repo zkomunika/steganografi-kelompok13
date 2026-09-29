@@ -5,7 +5,8 @@
 //
 // Pipeline (sesuai spesifikasi Checkpoint 3):
 //   Input validation
-//   → Encode message (messageBitConverter)
+//   → Encrypt message (cryptoService: AES-256-GCM, kunci PBKDF2 dari Kunci Enkripsi)
+//   → Frame payload: 32-bit length header + bit (messageBitConverter)
 //   → Generate PRNG sequence from Stego-Key (prngStegoKeyGenerator)
 //   → Select pixel positions (pixelPositionSelector)
 //   → Embed bits into RGB LSB (lsbEmbeddingEngine)
@@ -17,7 +18,8 @@
 import { getState, setState, batchSetState, subscribe } from '../state.js';
 import { pickImageFile, readImageFile } from '../services/fileService.js';
 import { decodeImage, encodeImageToPng, getCapacityInfo } from '../core/imageHandler.js';
-import { messageToBits }                                   from '../core/messageBitConverter.js';
+import { encryptMessage, getEncryptedByteLength, CRYPTO_OVERHEAD_BYTES } from '../core/cryptoService.js';
+import { bytesToBits, getRequiredBitsForBytes }                                   from '../core/messageBitConverter.js';
 import { generateSlotSequence }                            from '../core/pixelPositionSelector.js';
 import { embedBits }                                       from '../core/lsbEmbeddingEngine.js';
 import { calculateMSE }                                    from '../evaluation/mseCalculator.js';
@@ -45,6 +47,7 @@ function cacheDom() {
 
   dom.message        = page.querySelector('#emb-message');
   dom.stegoKey       = page.querySelector('#emb-key');
+  dom.encKey         = page.querySelector('#emb-enc-key');
 
   dom.capacityFill   = page.querySelector('#emb-capacity-fill');
   dom.capacityHelp   = page.querySelector('#emb-capacity-help');
@@ -120,14 +123,24 @@ function handleDrop(event) {
 // ---------------------------------------------------------------------------
 function handleMessageInput() {
   const message = dom.message ? dom.message.value : '';
-  const bits    = message.length > 0 ? messageToBits(message) : [];
 
-  batchSetState({ secretMessage: message, messageBits: bits });
+  // Kebutuhan bit = header 32 bit + payload terenkripsi (pesan UTF-8 + overhead enkripsi).
+  // Cukup dihitung dari panjang byte; enkripsi sebenarnya baru dijalankan saat Embed.
+  const bitCount = message.length > 0
+    ? getRequiredBitsForBytes(getEncryptedByteLength(new TextEncoder().encode(message).length))
+    : 0;
+
+  batchSetState({ secretMessage: message, messageBitCount: bitCount });
   _updateCapacity();
 }
 
 function handleKeyInput() {
   setState('stegoKey', dom.stegoKey ? dom.stegoKey.value : '');
+}
+
+function handleEncKeyInput() {
+  // Disimpan di memori saja; tidak pernah ditulis ke storage
+  setState('encryptionKey', dom.encKey ? dom.encKey.value : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +154,7 @@ function _updateCapacity() {
     if (st.coverImage) decodedImage = decodeImage(st.coverImage);
   } catch { /* no image yet */ }
 
-  const info = getCapacityInfo(decodedImage, st.messageBits);
+  const info = getCapacityInfo(decodedImage, st.messageBitCount);
   setState('capacity', info);
   _renderCapacityBar(info, st.secretMessage, decodedImage);
 }
@@ -150,9 +163,11 @@ function _renderCapacityBar(info, message, decodedImage) {
   if (!dom.capacityFill || !dom.capacityHelp) return;
 
   const pct        = info.pct;
-  const usedChars  = message ? message.length : 0;
-  const totalChars = decodedImage
-    ? Math.floor((decodedImage.width * decodedImage.height * 3) / 8) - 4
+  // Satuan: byte UTF-8 (bukan jumlah karakter). Kapasitas sudah dikurangi
+  // header 4 byte dan overhead enkripsi.
+  const usedBytes  = message ? new TextEncoder().encode(message).length : 0;
+  const totalBytes = decodedImage
+    ? Math.max(0, Math.floor((decodedImage.width * decodedImage.height * 3) / 8) - 4 - CRYPTO_OVERHEAD_BYTES)
     : 0;
 
   let colour = 'var(--accent)';
@@ -166,14 +181,15 @@ function _renderCapacityBar(info, message, decodedImage) {
     dom.capacityHelp.textContent = 'Upload cover image untuk melihat kapasitas.';
     return;
   }
-  if (usedChars === 0) {
-    dom.capacityHelp.textContent = `Kapasitas tersedia: ~${totalChars.toLocaleString()} karakter.`;
+  if (usedBytes === 0) {
+    dom.capacityHelp.textContent =
+      `Kapasitas tersedia: ${totalBytes.toLocaleString()} byte pesan (setelah header dan enkripsi ${CRYPTO_OVERHEAD_BYTES} byte).`;
     return;
   }
 
   dom.capacityHelp.textContent = info.valid
-    ? `${usedChars.toLocaleString()} / ${totalChars.toLocaleString()} karakter (${pct}% kapasitas)`
-    : `⚠ Pesan terlalu panjang (${usedChars.toLocaleString()} / ${totalChars.toLocaleString()} karakter)`;
+    ? `${usedBytes.toLocaleString()} / ${totalBytes.toLocaleString()} byte (${pct}% kapasitas)`
+    : `⚠ Pesan terlalu panjang (${usedBytes.toLocaleString()} / ${totalBytes.toLocaleString()} byte)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +200,9 @@ export function validateEmbeddingInputs() {
   if (!st.coverImage || !st.coverImage.imageData) throw new Error(ERROR.NO_IMAGE);
   if (!st.secretMessage || st.secretMessage.trim().length === 0) throw new Error(ERROR.EMPTY_MESSAGE);
   if (!st.stegoKey || st.stegoKey.trim().length === 0) throw new Error(ERROR.EMPTY_KEY);
+  if (!st.encryptionKey || st.encryptionKey.trim().length === 0) throw new Error(ERROR.EMPTY_ENC_KEY);
+  // Bila sama, Stego-Key (djb2, murah) menjadi jalan pintas menebak Kunci Enkripsi.
+  if (st.encryptionKey === st.stegoKey) throw new Error(ERROR.SAME_KEYS);
   if (st.capacity && !st.capacity.valid && st.capacity.usedBits > 0) throw new Error(ERROR.MESSAGE_TOO_LONG);
 }
 
@@ -210,19 +229,28 @@ async function handleEmbed() {
   try {
     const st = getState();
 
+    // Snapshot input: enkripsi (PBKDF2) butuh beberapa ratus ms, pengguna bisa saja
+    // masih mengetik. Semua langkah di bawah memakai nilai yang sama.
+    const secretMessage = st.secretMessage;
+    const stegoKey      = st.stegoKey;
+    const encryptionKey = st.encryptionKey;
+
     // 2. Decode cover image ke pixel buffer
     const coverDecoded  = decodeImage(st.coverImage);
     const coverImageData = coverDecoded.imageData;
     const totalSlots    = coverDecoded.width * coverDecoded.height * 3;
 
-    // 3. Encode message → bit array
-    //    Skema: [32-bit length prefix][UTF-8 payload] — MSB first per byte
-    const bits      = messageToBits(st.secretMessage);
-    const bitCount  = bits.length;
+    // 3. Enkripsi AES-256-GCM, lalu bungkus menjadi bit array
+    //    Payload : [salt 16][IV 12][ciphertext ‖ tag 16]
+    //    Framing : [32-bit length prefix][payload] — MSB first per byte
+    const plainBytes = new TextEncoder().encode(secretMessage).length;
+    const encrypted  = await encryptMessage(secretMessage, encryptionKey);
+    const bits       = bytesToBits(encrypted);
+    const bitCount   = bits.length;
 
     // 4. Generate PRNG-based slot sequence dari Stego-Key
     //    (Fisher-Yates dengan Xorshift32 — tidak ada Math.random())
-    const slotSequence = generateSlotSequence(st.stegoKey, totalSlots, bitCount);
+    const slotSequence = generateSlotSequence(stegoKey, totalSlots, bitCount);
 
     // 5. LSB Embedding: P' = (P & 254) | b
     //    Menghasilkan ImageData baru; cover image tidak termutasi
@@ -254,6 +282,8 @@ async function handleEmbed() {
       mse,
       psnr,
       bitsEmbedded:    bitCount,
+      plaintextBytes:  plainBytes,
+      encryptedBytes:  encrypted.length,
       totalSlots,
       stegoImageData,
     };
@@ -265,7 +295,7 @@ async function handleEmbed() {
         mse,
         psnr,
         fileSizeDeltaKb: ((stegoMeta.size - st.coverImage.size) / 1024).toFixed(1) * 1,
-        summary: _buildAnalysisSummary(mse, psnr, bitCount, coverDecoded),
+        summary: _buildAnalysisSummary(mse, psnr, bitCount, coverDecoded, plainBytes),
       },
     });
 
@@ -305,8 +335,9 @@ function handleReset() {
     coverImage:      null,
     stegoImage:      null,
     secretMessage:   '',
-    messageBits:     [],
+    messageBitCount: 0,
     stegoKey:        '',
+    encryptionKey:   '',
     capacity:        null,
     embeddingResult: null,
     analysisResult:  null,
@@ -315,6 +346,7 @@ function handleReset() {
   // Reset field input
   if (dom.message)   dom.message.value   = '';
   if (dom.stegoKey)  dom.stegoKey.value  = '';
+  if (dom.encKey)    dom.encKey.value    = '';
   if (dom.fname)     dom.fname.textContent = 'Belum ada file dipilih';
 
   // Reset preview dan metrik
@@ -427,10 +459,9 @@ function _updateStepperToResult() {
   });
 }
 
-function _buildAnalysisSummary(mse, psnr, bitCount, decoded) {
+function _buildAnalysisSummary(mse, psnr, bitCount, decoded, plainBytes) {
   const totalPx   = decoded.width * decoded.height;
   const totalSlot = totalPx * 3;                      // 3 channel RGB
-  const charCount = Math.round(bitCount / 8) - 4;    // dikurangi 4-byte header
   const psnrStr   = isFinite(psnr) ? psnr.toFixed(2) + ' dB' : '∞ dB';
   const usedPct   = ((bitCount / totalSlot) * 100).toFixed(2);
 
@@ -438,7 +469,8 @@ function _buildAnalysisSummary(mse, psnr, bitCount, decoded) {
   return (
     `Embedding selesai pada citra ${decoded.width}×${decoded.height} px ` +
     `(${totalPx.toLocaleString()} piksel, ${totalSlot.toLocaleString()} slot RGB tersedia). ` +
-    `Jumlah bit yang disisipkan: ${bitCount.toLocaleString()} bit (${charCount} karakter + 4-byte header), ` +
+    `Jumlah bit yang disisipkan: ${bitCount.toLocaleString()} bit ` +
+    `(${plainBytes} byte pesan + ${CRYPTO_OVERHEAD_BYTES} byte overhead enkripsi AES-256-GCM + 4-byte header), ` +
     `menggunakan ${usedPct}% kapasitas slot. ` +
     `Hasil kalkulasi: MSE = ${_formatMSEValue(mse)}, PSNR = ${psnrStr}.`
   );
@@ -489,6 +521,11 @@ export function initEmbeddingController() {
   if (dom.stegoKey) {
     dom.stegoKey.addEventListener('input', handleKeyInput);
     dom.stegoKey.value = '';
+  }
+
+  if (dom.encKey) {
+    dom.encKey.addEventListener('input', handleEncKeyInput);
+    dom.encKey.value = '';
   }
 
   if (dom.embedBtn)    dom.embedBtn.addEventListener('click', handleEmbed);

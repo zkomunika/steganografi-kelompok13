@@ -108,25 +108,3 @@ export function calcBitAccuracy(bitsA, bitsB) {
   }
   return Number(((match / len) * 100).toFixed(2));
 }
-
-/**
- * Load an image from a data URL.
- *
- * @param {string} dataUrl
- * @returns {Promise<HTMLImageElement>}
- */
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.onload = () => {
-      resolve(image);
-    };
-
-    image.onerror = () => {
-      reject(new Error("Failed to decode JPEG image."));
-    };
-
-    image.src = dataUrl;
-  });
-}

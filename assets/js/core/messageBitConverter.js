@@ -21,6 +21,9 @@
 //                           MSB (bit 7)           LSB (bit 0)
 //
 // ── Interface ─────────────────────────────────────────────────────────────────
+//   bytesToBits(bytes)      → number[]   (header + bytes, flat 0/1 array)
+//   bitsToBytes(bits)       → Uint8Array | null  (payload mentah; null bila tidak valid)
+//   getRequiredBitsForBytes(n) → number  (total bit termasuk header)
 //   messageToBits(message)  → number[]   (flat 0/1 array)
 //   bitsToMessage(bits)     → string     (UTF-8 decoded, empty on error)
 //   getRequiredBits(message)→ number     (total bit count termasuk header)
@@ -44,8 +47,23 @@ export function messageToBits(message) {
   }
 
   // Encode ke UTF-8 menggunakan TextEncoder (selalu UTF-8 di browser)
-  const encoder = new TextEncoder();
-  const payload = encoder.encode(message);  // Uint8Array
+  return bytesToBits(new TextEncoder().encode(message));
+}
+
+// ---------------------------------------------------------------------------
+// bytesToBits — Encode byte mentah (mis. payload terenkripsi) ke flat bit array
+// ---------------------------------------------------------------------------
+/**
+ * Bungkus byte array dengan 32-bit length header lalu ratakan menjadi bit.
+ * Layout identik dengan messageToBits(); dipakai untuk payload terenkripsi.
+ *
+ * @param {Uint8Array} payload
+ * @returns {number[]}  flat array of 0/1 values, MSB first per byte
+ */
+export function bytesToBits(payload) {
+  if (!(payload instanceof Uint8Array)) {
+    throw new TypeError('[messageBitConverter] payload harus berupa Uint8Array.');
+  }
 
   // Bangun header: 4 byte big-endian, menyimpan panjang payload dalam byte
   const byteLen = payload.length;
@@ -86,9 +104,24 @@ export function messageToBits(message) {
  * @returns {string}                  – decoded string, atau '' jika invalid
  */
 export function bitsToMessage(bits) {
+  const payloadBytes = bitsToBytes(bits);
+  if (!payloadBytes) return '';
+  return _decodeUtf8OrEmpty(payloadBytes);
+}
+
+// ---------------------------------------------------------------------------
+// bitsToBytes — Rekonstruksi payload mentah (tanpa decode UTF-8)
+// ---------------------------------------------------------------------------
+/**
+ * Baca 32-bit length header lalu kumpulkan payload byte.
+ *
+ * @param {number[]|Uint8Array} bits  – flat 0/1 array, minimal 32 elemen
+ * @returns {Uint8Array|null}         – payload, atau null jika header/panjang tidak valid
+ */
+export function bitsToBytes(bits) {
   // Terima plain Array dan typed array (Uint8Array dari extractBits)
   if (bits == null || typeof bits.length !== 'number' || bits.length < HEADER_BYTES * 8) {
-    return '';
+    return null;
   }
 
   // ── 1. Baca 32-bit header (big-endian) ───────────────────────────────────
@@ -101,10 +134,10 @@ export function bitsToMessage(bits) {
   payloadByteLen = payloadByteLen >>> 0;   // paksa unsigned 32-bit
 
   // ── 2. Validasi panjang payload ───────────────────────────────────────────
-  if (payloadByteLen === 0) return '';
+  if (payloadByteLen === 0) return null;
 
   const totalBitsNeeded = (HEADER_BYTES + payloadByteLen) * 8;
-  if (bits.length < totalBitsNeeded) return '';
+  if (bits.length < totalBitsNeeded) return null;
 
   // ── 3. Rekonstruksi payload bytes dari bit array ──────────────────────────
   // Setiap byte terdiri dari 8 bit berurutan, MSB lebih dahulu.
@@ -122,7 +155,13 @@ export function bitsToMessage(bits) {
     payloadBytes[i] = byte;
   }
 
-  // ── 4. Decode UTF-8 → string ──────────────────────────────────────────────
+  return payloadBytes;
+}
+
+// ---------------------------------------------------------------------------
+// _decodeUtf8OrEmpty — decode UTF-8; '' bila bukan UTF-8 valid
+// ---------------------------------------------------------------------------
+function _decodeUtf8OrEmpty(payloadBytes) {
   // Gunakan fatal=true dulu untuk mendeteksi sequence yang tidak valid;
   // fallback ke fatal=false (U+FFFD replacement) jika karakter non-UTF8.
   try {
@@ -167,5 +206,17 @@ export function getMessageByteLength(message) {
 export function getRequiredBits(message) {
   if (!message) return 0;
   const payloadBytes = new TextEncoder().encode(message).length;
+  return getRequiredBitsForBytes(payloadBytes);
+}
+
+// ---------------------------------------------------------------------------
+// getRequiredBitsForBytes
+// ---------------------------------------------------------------------------
+/**
+ * Total bit (header + payload) untuk payload sepanjang payloadBytes byte.
+ * @param {number} payloadBytes
+ * @returns {number}
+ */
+export function getRequiredBitsForBytes(payloadBytes) {
   return (HEADER_BYTES + payloadBytes) * 8;
 }

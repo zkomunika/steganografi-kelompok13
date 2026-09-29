@@ -9,7 +9,7 @@
 // Functions:
 //   decodeImage(imageMeta)            → DecodedImage  (working pixel buffer)
 //   encodeImageToPng(decodedImage)    → Promise<string>  (PNG data URL)
-//   getCapacityInfo(decodedImage, messageBits) → CapacityInfo
+//   getCapacityInfo(decodedImage, usedBits)   → CapacityInfo
 
 // ---------------------------------------------------------------------------
 // decodeImage
@@ -99,7 +99,7 @@ export function encodeImageToPng(source) {
  *   (1 bit per LSB, 3 RGB channels, alpha untouched)
  *
  * @param {DecodedImage|null}  decodedImage
- * @param {number[]|null}      messageBits   – current bit array (may be empty)
+ * @param {number|number[]|null} messageBits – jumlah bit (atau bit array) yang akan disisipkan
  * @returns {CapacityInfo}
  *   {
  *     totalBits  : number,
@@ -113,7 +113,9 @@ export function getCapacityInfo(decodedImage, messageBits) {
     ? decodedImage.width * decodedImage.height * 3
     : 0;
 
-  const usedBits = Array.isArray(messageBits) ? messageBits.length : 0;
+  const usedBits = typeof messageBits === 'number'
+    ? messageBits
+    : (Array.isArray(messageBits) ? messageBits.length : 0);
 
   const pct = totalBits > 0
     ? Math.min(100, Math.round((usedBits / totalBits) * 100))

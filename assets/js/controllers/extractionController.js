@@ -12,7 +12,8 @@
 //   → Rekonstruksi length header (32 bit pertama)
 //   → Validasi panjang payload
 //   → Ekstrak payload bits
-//   → Gabungkan bits → bytes → decode UTF-8
+//   → Gabungkan bits → bytes (payload terenkripsi)
+//   → Dekripsi AES-256-GCM dengan Kunci Enkripsi → string UTF-8
 //   → Update state & UI
 //
 // ── Prinsip Extraction dari Dokumen Penelitian ───────────────────────────
@@ -36,7 +37,8 @@ import { pickImageFile, readImageFile }       from '../services/fileService.js';
 import { decodeImage }                        from '../core/imageHandler.js';
 import { generateSlotSequence }               from '../core/pixelPositionSelector.js';
 import { extractBits }                        from '../core/lsbEmbeddingEngine.js';
-import { bitsToMessage }                      from '../core/messageBitConverter.js';
+import { decryptMessage, CRYPTO_OVERHEAD_BYTES } from '../core/cryptoService.js';
+import { bitsToBytes }                      from '../core/messageBitConverter.js';
 import { ERROR, STATUS }                      from '../constants.js';
 import { showError, clearError }              from '../utils/uiHelpers.js';
 
@@ -58,6 +60,7 @@ function cacheDom() {
   dom.stegoPreview   = page.querySelector('#ext-stego-preview');
   dom.dimLabel       = page.querySelector('#ext-stego-dim');
   dom.stegoKey       = page.querySelector('#ext-key');
+  dom.encKey         = page.querySelector('#ext-enc-key');
   dom.extractBtn     = page.querySelector('#ext-btn');
   dom.resultBox      = page.querySelector('#ext-result-box');
   dom.resultTextarea = page.querySelector('#ext-result-textarea');
@@ -113,6 +116,11 @@ function handleKeyInput() {
   setState('extractionKey', dom.stegoKey ? dom.stegoKey.value : '');
 }
 
+function handleEncKeyInput() {
+  // Disimpan di memori saja; tidak pernah ditulis ke storage
+  setState('extractionEncKey', dom.encKey ? dom.encKey.value : '');
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -134,6 +142,11 @@ function validateExtractionInputs() {
   // Validasi 2: key tidak boleh kosong
   if (!st.extractionKey || st.extractionKey.trim().length === 0) {
     throw new Error(ERROR.EMPTY_KEY);
+  }
+
+  // Validasi 2b: Kunci Enkripsi wajib (terpisah dari Stego-Key)
+  if (!st.extractionEncKey || st.extractionEncKey.trim().length === 0) {
+    throw new Error(ERROR.EMPTY_ENC_KEY);
   }
 }
 
@@ -209,6 +222,13 @@ async function handleExtract() {
         'Pastikan image ini adalah hasil embedding dan bukan image biasa.'
       );
     }
+    // Payload terenkripsi minimal overhead + 1 byte pesan.
+    if (payloadByteLen <= CRYPTO_OVERHEAD_BYTES) {
+      throw new Error(
+        'Stego-Key tidak valid, atau image bukan hasil embedding terenkripsi dari aplikasi ini. ' +
+        `(Header menunjukkan ${payloadByteLen} byte, minimal ${CRYPTO_OVERHEAD_BYTES + 1} byte)`
+      );
+    }
     if (payloadByteLen > maxPayloadBytes) {
       throw new Error(
         'Stego-Key tidak valid atau image bukan hasil embedding dari aplikasi ini. ' +
@@ -240,14 +260,21 @@ async function handleExtract() {
     // ─────────────────────────────────────────────────────────────────────
     // Tahap 5: Gabungkan bit → byte → decode UTF-8
     // ─────────────────────────────────────────────────────────────────────
-    const message = bitsToMessage(allBits);
+    const payload = bitsToBytes(allBits);
+    if (!payload) {
+      throw new Error('Gagal membaca payload dari image. Image mungkin telah dimodifikasi.');
+    }
 
-    // Validasi 6: pesan hasil decode tidak boleh kosong atau garbage
-    if (message === null || message === undefined || message === '') {
-      throw new Error(
-        'Gagal mendekode pesan. Stego-Key mungkin salah, atau karakter non-UTF8 terdeteksi. ' +
-        'Pastikan Stego-Key sama persis dengan yang digunakan saat embedding.'
-      );
+    // Validasi 6: dekripsi AES-256-GCM. Tag autentikasi memastikan Kunci Enkripsi benar
+    // dan tidak ada bit yang berubah; tidak pernah menghasilkan teks "hampir benar".
+    let message;
+    try {
+      message = await decryptMessage(payload, st.extractionEncKey);
+    } catch (err) {
+      if (err.name === 'DecryptionError') {
+        throw new Error(err.message + ' Pastikan juga Stego-Key sama persis dengan saat embedding.');
+      }
+      throw err;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -260,12 +287,12 @@ async function handleExtract() {
     // ─────────────────────────────────────────────────────────────────────
     // Tahap 7: Update UI
     // ─────────────────────────────────────────────────────────────────────
-    _renderResult(message, STATUS.OK, payloadByteLen);
+    _renderResult(message, STATUS.OK, new TextEncoder().encode(message).length);
     _updateStepper();
 
     console.info(
       `[ExtractionController] Berhasil mengekstrak ${message.length} karakter ` +
-      `(${payloadByteLen} byte UTF-8) dari ${stegoDecoded.width}×${stegoDecoded.height} image.`
+      `(payload terenkripsi ${payloadByteLen} byte) dari ${stegoDecoded.width}×${stegoDecoded.height} image.`
     );
 
   } catch (err) {
@@ -393,11 +420,17 @@ export function initExtractionController() {
     dom.stegoKey.value = '';
   }
 
+  if (dom.encKey) {
+    dom.encKey.addEventListener('input', handleEncKeyInput);
+    dom.encKey.value = '';
+  }
+
   if (dom.extractBtn) {
     dom.extractBtn.addEventListener('click', handleExtract);
   }
 
   // Inisialisasi state key ke kosong
   setState('extractionKey', '');
+  setState('extractionEncKey', '');
   setState('extractionResult', null);
 }

@@ -22,7 +22,8 @@ import { PAGES } from './constants.js';
 //
 // CapacityInfo: {
 //   totalBits    : number   – width × height × 3 (RGB channels × 1 bit each)
-//   usedBits     : number   – bits needed to embed current message
+//   usedBits     : number   – bits needed to embed current message (incl. 32-bit header
+//                             and encryption overhead)
 //   pct          : number   – 0–100
 //   valid        : boolean  – usedBits <= totalBits
 // }
@@ -38,15 +39,17 @@ const _state = {
   stegoImage:     null,   // ImageMetadata | null  (output of embedding)
 
   secretMessage:  '',     // raw text; never pre-filled with demo data
-  messageBits:    [],     // number[] (0/1)  – derived from secretMessage
+  messageBitCount: 0,     // total bits to embed (header + encrypted payload)
 
   stegoKey:       '',     // string; held in memory only, never persisted
+  encryptionKey:  '',     // string; held in memory only, never persisted
 
   capacity:       null,   // CapacityInfo | null – recomputed on image/message change
 
   // ── Extraction ────────────────────────────────────────────────────────────
   extractionImage:  null, // ImageMetadata | null (stego image uploaded for extraction)
   extractionKey:    '',   // separate key field on the extraction page
+  extractionEncKey: '',   // Kunci Enkripsi on the extraction page (memory only)
   extractionResult: null, // { message: string, status: 'ok'|'fail' } | null
 
   // ── Extraction (for JPEG page) ────────────────────────────────────────────

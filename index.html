@@ -66,6 +66,10 @@
             <h4>PRNG berbasis Stego-Key</h4>
             <p>Stego-Key digunakan sebagai seed bagi Pseudo-Random Number Generator untuk menentukan urutan posisi piksel penyisipan, sehingga posisi bit tidak berurutan linear dan hanya dapat direproduksi dengan key yang sama.</p>
           </div>
+          <div class="info-block">
+            <h4>Enkripsi AES-256-GCM</h4>
+            <p>Pesan dienkripsi sebelum disisipkan. Kunci diturunkan dari Kunci Enkripsi dengan PBKDF2 (600.000 iterasi, salt acak); tag GCM mendeteksi kunci yang salah maupun bit yang rusak. Kunci Enkripsi terpisah dari Stego-Key.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -74,7 +78,7 @@
     <section class="page" id="page-embedding">
       <div class="page-head">
         <h1 class="page-title">Embedding</h1>
-        <p class="page-desc">Sisipkan Secret Message ke dalam Cover Image menggunakan LSB dan urutan posisi piksel dari PRNG.</p>
+        <p class="page-desc">Enkripsi Secret Message (AES-256-GCM), lalu sisipkan ke dalam Cover Image menggunakan LSB dan urutan posisi piksel dari PRNG.</p>
       </div>
       <div class="stepper">
         <div class="step current"><div class="step-dot">1</div><div class="step-label">Input</div></div>
@@ -113,6 +117,12 @@
             <div class="field">
               <label>Secret Message</label>
               <textarea id="emb-message" placeholder="Tulis pesan rahasia di sini…"></textarea>
+            </div>
+            <!-- Kunci Enkripsi -->
+            <div class="field">
+              <label>Kunci Enkripsi (AES-256-GCM)</label>
+              <input type="password" id="emb-enc-key" placeholder="Masukkan Kunci Enkripsi…" autocomplete="off">
+              <div class="help">Harus berbeda dari Stego-Key. Pesan dienkripsi sebelum disisipkan (tambahan 44 byte per pesan).</div>
             </div>
             <!-- Stego-Key -->
             <div class="field">
@@ -202,6 +212,10 @@
             <div class="field">
               <label>Stego-Key</label>
               <input type="password" id="ext-key" placeholder="Masukkan Stego-Key…" autocomplete="off">
+            </div>
+            <div class="field">
+              <label>Kunci Enkripsi (AES-256-GCM)</label>
+              <input type="password" id="ext-enc-key" placeholder="Masukkan Kunci Enkripsi…" autocomplete="off">
             </div>
             <button class="btn btn-primary" id="ext-btn">Extract Message</button>
           </div>
@@ -339,7 +353,6 @@
             <div class="metrics">
               <div class="metric"><div class="metric-label">Bit Accuracy — Sebelum</div><div class="metric-value" id="jpeg-acc-before">—</div></div>
               <div class="metric"><div class="metric-label">Bit Accuracy — Sesudah</div><div class="metric-value" id="jpeg-acc-after">—</div></div>
-              <div class="metric"><div class="metric-label">PSNR (JPEG)</div><div class="metric-value" id="jpeg-psnr">—</div></div>
               <div class="metric"><div class="metric-label">Quality Factor</div><div class="metric-value" id="jpeg-qf-result">—</div></div>
             </div>
             <div style="margin-top:14px;">

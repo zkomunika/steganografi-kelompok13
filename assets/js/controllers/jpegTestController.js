@@ -56,17 +56,6 @@ const MULTI_QF_LIST = [100, 90, 70, 50, 30];
 const HEADER_BITS  = 32;
 const HEADER_BYTES = 4;
 
-import { generateSlotSequence } from '../core/pixelPositionSelector.js';
-import { extractBits } from '../core/lsbEmbeddingEngine.js';
-import { bitsToMessage } from '../core/messageBitConverter.js';
-
-import { compressToJPEG } from '../evaluation/jpegCompressionTest.js';
-import { calculateBitAccuracy } from '../evaluation/bitAccuracyCalculator.js';
-import { calculateMSE } from '../evaluation/mseCalculator.js';
-import { calculatePSNR, formatPSNR } from '../evaluation/psnrCalculator.js';
-
-import { buildJpegTestRow } from '../utils/resultHandler.js';
-
 const dom = {};
 
 // ---------------------------------------------------------------------------
@@ -100,7 +89,6 @@ function cacheDom() {
 // ---------------------------------------------------------------------------
 async function handlePickStegoImage() {
   clearError(dom.page);
-
   try {
     const file = await pickImageFile();
     await _loadStegoImage(file);
@@ -113,11 +101,7 @@ async function handlePickStegoImage() {
 
 function handleDrop(event) {
   event.preventDefault();
-
-  if (dom.dropzone) {
-    dom.dropzone.classList.remove('dragover');
-  }
-
+  dom.dropzone.classList.remove('dragover');
   const file = event.dataTransfer.files && event.dataTransfer.files[0];
   if (!file) return;
   _loadStegoImage(file).catch((err) => showError(dom.page, err.message));
@@ -132,9 +116,8 @@ async function _loadStegoImage(file) {
 }
 
 // ---------------------------------------------------------------------------
-// Key & Quality Factor handlers
+// Key + slider
 // ---------------------------------------------------------------------------
-
 function handleKeyInput() {
   setState('jpegKey', dom.stegoKey ? dom.stegoKey.value : '');
 }
@@ -142,13 +125,12 @@ function handleKeyInput() {
 function handleQualityChange(event) {
   const qf = Number(event.target.value);
   setState('qualityFactor', qf);
-
-  if (dom.rangeLabel) {
-    dom.rangeLabel.textContent = String(qf);
-  }
+  if (dom.rangeLabel) dom.rangeLabel.textContent = String(qf);
 }
 
+// ---------------------------------------------------------------------------
 // Validation
+// ---------------------------------------------------------------------------
 function validateJpegTestInputs() {
   const st = getState();
   if (!st.jpegStegoImage) throw new Error('Belum ada stego image yang di-upload.');
@@ -282,7 +264,6 @@ async function handleRunTest() {
   try {
     validateJpegTestInputs();
   } catch (err) {
-    console.error('[JpegTestController] JPEG Test error:', err);
     showError(dom.page, err.message);
     return;
   }
@@ -436,115 +417,12 @@ function _setButtonState(btn, disabled, label) {
 function _renderStegoPreview(meta) {
   if (!dom.stegoPreview) return;
   dom.stegoPreview.innerHTML = '';
-
   const img = document.createElement('img');
-  img.src = meta.dataUrl;
-  img.alt = 'Stego Image';
+  img.src   = meta.dataUrl;
+  img.alt   = 'Stego Image';
   img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
   dom.stegoPreview.appendChild(img);
-
-  if (dom.stegoLabel) {
-    dom.stegoLabel.textContent = `${meta.width}×${meta.height}`;
-  }
-}
-
-function renderJpegPreview(jpegResult, qf) {
-  if (!dom.jpegPreview) return;
-  dom.jpegPreview.innerHTML = '';
-
-  const img = document.createElement('img');
-  img.src = jpegResult.dataUrl;
-  img.alt = 'JPEG Preview';
-  img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:4px;';
-  dom.jpegPreview.appendChild(img);
-
-  if (dom.qfBadge) {
-    dom.qfBadge.textContent = `QF ${qf}`;
-  }
-}
-
-// Render Results
-function renderResult(result) {
-  if (dom.resultStatus) {
-    dom.resultStatus.textContent = result.status === 'Utuh' ? ' (Utuh)' : ' (Rusak)';
-    dom.resultStatus.style.color = result.status === 'Utuh' ? 'var(--accent)' : 'var(--warn)';
-  }
-
-  if (dom.extractionResult) {
-    dom.extractionResult.value = result.extractedMessage || '—';
-  }
-
-  if (dom.bitAccuracyBefore) {
-    dom.bitAccuracyBefore.textContent = `${result.bitAccuracyBefore.toFixed(2)}%`;
-  }
-
-  if (dom.bitAccuracyAfter) {
-    dom.bitAccuracyAfter.textContent = `${result.bitAccuracyAfter.toFixed(2)}%`;
-  }
-
-  if (dom.psnr) {
-    dom.psnr.textContent = result.psnrFormatted;
-  }
-
-  if (dom.qfResult) {
-    dom.qfResult.textContent = String(result.qualityFactor);
-  }
-}
-
-// Render History Table
-function renderHistory(history) {
-  if (!dom.resultTableBody) return;
-  dom.resultTableBody.innerHTML = '';
-
-  if (!history || history.length === 0) {
-    dom.resultTableBody.innerHTML =
-      '<tr><td colspan="4" style="text-align:center;color:var(--ink-soft);font-size:12px;padding:18px;">Belum ada pengujian dilakukan.</td></tr>';
-    return;
-  }
-
-  for (const row of history) {
-    const tr = document.createElement('tr');
-
-    const qfTd = document.createElement('td');
-    qfTd.className = 'mono';
-    qfTd.textContent = String(row.qualityFactor);
-
-    const statusTd = document.createElement('td');
-    statusTd.textContent = row.status;
-    if (row.status === 'Utuh') {
-      statusTd.style.color = 'var(--accent)';
-      statusTd.style.fontWeight = '600';
-    } else {
-      statusTd.style.color = 'var(--warn)';
-    }
-
-    const accuracyTd = document.createElement('td');
-    accuracyTd.className = 'mono';
-    accuracyTd.textContent = `${Number(row.bitAccuracy).toFixed(2)}%`;
-
-    const psnrTd = document.createElement('td');
-    psnrTd.className = 'mono';
-    psnrTd.textContent = formatPSNR(row.psnrJpeg);
-
-    tr.appendChild(qfTd);
-    tr.appendChild(statusTd);
-    tr.appendChild(accuracyTd);
-    tr.appendChild(psnrTd);
-
-    dom.resultTableBody.appendChild(tr);
-  }
-}
-
-// Reset / Clear
-function clearJpegResults() {
-  if (dom.jpegPreview) dom.jpegPreview.innerHTML = 'Hasil kompresi';
-  if (dom.qfBadge) dom.qfBadge.textContent = 'QF —';
-  if (dom.resultStatus) dom.resultStatus.textContent = '';
-  if (dom.extractionResult) dom.extractionResult.value = '';
-  if (dom.bitAccuracyBefore) dom.bitAccuracyBefore.textContent = '—';
-  if (dom.bitAccuracyAfter) dom.bitAccuracyAfter.textContent = '—';
-  if (dom.psnr) dom.psnr.textContent = '—';
-  if (dom.qfResult) dom.qfResult.textContent = '—';
+  if (dom.stegoLabel) dom.stegoLabel.textContent = `${meta.width}×${meta.height}`;
 }
 
 function _renderJpegPreview(jpegDataUrl, qf) {
@@ -665,13 +543,9 @@ function _appendHistoryRow(row) {
 
 // ---------------------------------------------------------------------------
 // Init
+// ---------------------------------------------------------------------------
 export function initJpegTestController() {
   cacheDom();
-
-  if (!dom.page) {
-    console.warn('[JpegTestController] #page-jpeg tidak ditemukan.');
-    return;
-  }
 
   if (dom.dropzone) {
     dom.dropzone.addEventListener('click', handlePickStegoImage);
@@ -679,9 +553,7 @@ export function initJpegTestController() {
       e.preventDefault();
       dom.dropzone.classList.add('dragover');
     });
-    dom.dropzone.addEventListener('dragleave', () => {
-      dom.dropzone.classList.remove('dragover');
-    });
+    dom.dropzone.addEventListener('dragleave', () => dom.dropzone.classList.remove('dragover'));
     dom.dropzone.addEventListener('drop', handleDrop);
   }
 
