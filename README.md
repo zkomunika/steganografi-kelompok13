@@ -68,8 +68,6 @@ Pesan dienkripsi sebelum disisipkan ke citra, memakai Web Crypto API bawaan brow
 - Web Crypto hanya tersedia di `http://localhost` atau `https://`, sehingga aplikasi tetap dijalankan lewat server lokal.
 
 ## Anggota Kelompok 13
-* (Nama Anggota 1) - (NPM 1)
-* (Nama Anggota 2) - (NPM 2)
-* (Nama Anggota 3) - (NPM 3)
-* (Nama Anggota 4) - (NPM 4)
-*Silakan sesuaikan nama dan NPM anggota kelompok di atas.*
+* Nabil Dhia Pratama - 247006111019
+* M. Zaky Al Mubarok - 247006111041
+* Hasbi Rabbani - 247006111045
