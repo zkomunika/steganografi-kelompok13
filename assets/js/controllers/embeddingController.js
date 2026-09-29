@@ -94,7 +94,6 @@ async function handlePickCoverImage() {
 
   } catch (err) {
     showError(dom.page, err.message);
-    console.warn('[EmbeddingController] cover image error:', err.message);
   }
 }
 
@@ -295,6 +294,52 @@ async function handleEmbed() {
 }
 
 // ---------------------------------------------------------------------------
+// Reset / New Experiment
+// ---------------------------------------------------------------------------
+/**
+ * Bersihkan seluruh state embedding untuk memulai eksperimen baru.
+ * Tidak memerlukan reload browser.
+ */
+function handleReset() {
+  batchSetState({
+    coverImage:      null,
+    stegoImage:      null,
+    secretMessage:   '',
+    messageBits:     [],
+    stegoKey:        '',
+    capacity:        null,
+    embeddingResult: null,
+    analysisResult:  null,
+  });
+
+  // Reset field input
+  if (dom.message)   dom.message.value   = '';
+  if (dom.stegoKey)  dom.stegoKey.value  = '';
+  if (dom.fname)     dom.fname.textContent = 'Belum ada file dipilih';
+
+  // Reset preview dan metrik
+  if (dom.coverPreview)  dom.coverPreview.innerHTML  = 'Belum ada image';
+  if (dom.stegoPreview)  dom.stegoPreview.innerHTML  = 'Hasil embedding';
+  if (dom.coverDimLabel) dom.coverDimLabel.textContent = '—';
+  if (dom.stegoDimLabel) dom.stegoDimLabel.textContent = '—';
+  if (dom.metaPanel)     dom.metaPanel.style.display   = 'none';
+
+  _resetResultPanel();
+  _updateCapacity();
+
+  // Kembalikan stepper ke posisi awal
+  if (dom.stepper) {
+    const steps = dom.stepper.querySelectorAll('.step');
+    steps.forEach((s, i) => {
+      s.classList.remove('done', 'current');
+      const dot = s.querySelector('.step-dot');
+      if (dot) dot.textContent = i + 1;
+      if (i === 0) s.classList.add('current');
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
 function handleDownload() {
@@ -384,17 +429,26 @@ function _updateStepperToResult() {
 
 function _buildAnalysisSummary(mse, psnr, bitCount, decoded) {
   const totalPx   = decoded.width * decoded.height;
+  const totalSlot = totalPx * 3;                      // 3 channel RGB
+  const charCount = Math.round(bitCount / 8) - 4;    // dikurangi 4-byte header
   const psnrStr   = isFinite(psnr) ? psnr.toFixed(2) + ' dB' : '∞ dB';
-  const threshold = psnr > 50 ? 'jauh di atas' : 'di atas';
-  const charCount = Math.round(bitCount / 8) - 4;   // minus 4-byte header
+  const usedPct   = ((bitCount / totalSlot) * 100).toFixed(2);
 
+  // Ringkasan faktual — tidak mengandung klaim kualitas atau threshold
   return (
-    `Nilai PSNR sebesar ${psnrStr} berada ${threshold} ambang persepsi visual manusia ` +
-    `(umumnya >40 dB), menunjukkan bahwa penyisipan ${charCount} karakter pesan ` +
-    `pada citra ${decoded.width}×${decoded.height} (${totalPx.toLocaleString()} piksel) ` +
-    `tidak menghasilkan distorsi yang kasat mata. ` +
-    `Nilai MSE ${mse.toFixed(4)} mencerminkan perubahan LSB yang sangat minimal (±1 per channel).`
+    `Embedding selesai pada citra ${decoded.width}×${decoded.height} px ` +
+    `(${totalPx.toLocaleString()} piksel, ${totalSlot.toLocaleString()} slot RGB tersedia). ` +
+    `Jumlah bit yang disisipkan: ${bitCount.toLocaleString()} bit (${charCount} karakter + 4-byte header), ` +
+    `menggunakan ${usedPct}% kapasitas slot. ` +
+    `Hasil kalkulasi: MSE = ${_formatMSEValue(mse)}, PSNR = ${psnrStr}.`
   );
+}
+
+function _formatMSEValue(mse) {
+  if (mse === 0)    return '0';
+  if (mse < 0.001)  return mse.toExponential(4);
+  if (mse < 1)      return mse.toFixed(6);
+  return mse.toFixed(4);
 }
 
 function _fmtBytes(bytes) {
@@ -442,9 +496,10 @@ export function initEmbeddingController() {
     dom.downloadBtn.addEventListener('click', handleDownload);
     dom.downloadBtn.disabled = true;   // aktif hanya setelah embedding berhasil
   }
-  if (dom.analysisBtn) {
-    // analysisBtn sudah punya data-goto="analysis" dari HTML, ditangani navigationService
-  }
+
+  // Reset button — memulai eksperimen baru tanpa reload
+  const resetBtn = dom.page.querySelector('#emb-reset-btn');
+  if (resetBtn) resetBtn.addEventListener('click', handleReset);
 
   subscribe(onStateChange);
 }

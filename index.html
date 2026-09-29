@@ -125,7 +125,10 @@
               <div class="capacity-bar"><div class="capacity-fill" id="emb-capacity-fill" style="width:0%;"></div></div>
               <div class="help" id="emb-capacity-help">Upload cover image untuk melihat kapasitas.</div>
             </div>
-            <button class="btn btn-primary" id="emb-btn">Embed Message</button>
+            <div style="display:flex;gap:8px;">
+              <button class="btn btn-primary" id="emb-btn">Embed Message</button>
+              <button class="btn" id="emb-reset-btn" title="Mulai eksperimen baru">↺ Reset</button>
+            </div>
           </div>
         </div>
 
@@ -154,7 +157,7 @@
               <div class="metric">
                 <div class="metric-label">PSNR</div>
                 <div class="metric-value" id="emb-psnr">—</div>
-                <div class="metric-note">&gt;50 dB · tidak kasat mata</div>
+                <div class="metric-note">dB · makin tinggi makin kecil perubahan</div>
               </div>
               <div class="metric">
                 <div class="metric-label">Ukuran File</div>
@@ -162,7 +165,7 @@
                 <div class="metric-note">perubahan vs cover</div>
               </div>
             </div>
-            <div style="margin-top:16px;display:flex;gap:10px;">
+            <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-primary" id="emb-download-btn" style="width:auto;" disabled>↓ Download Stego Image</button>
               <button class="btn btn-secondary" id="emb-analysis-btn" data-goto="analysis">Lihat di Image Analysis</button>
             </div>
@@ -306,6 +309,7 @@
               <div class="help">10 (kompresi berat) — 100 (kompresi minimal)</div>
             </div>
             <button class="btn btn-primary" id="jpeg-btn">Run JPEG Test</button>
+            <button class="btn" id="jpeg-btn-all" style="margin-top:8px;width:100%;">Run All QF (100 / 90 / 70 / 50 / 30)</button>
           </div>
         </div>
 
@@ -337,6 +341,9 @@
               <div class="metric"><div class="metric-label">Bit Accuracy — Sesudah</div><div class="metric-value" id="jpeg-acc-after">—</div></div>
               <div class="metric"><div class="metric-label">Quality Factor</div><div class="metric-value" id="jpeg-qf-result">—</div></div>
             </div>
+            <div style="margin-top:14px;">
+              <button class="btn" id="jpeg-download-btn" disabled>↓ Download JPEG Terakhir</button>
+            </div>
           </div>
         </div>
       </div>
@@ -344,7 +351,7 @@
       <div class="card">
         <div class="card-title">Tabel Hasil Pengujian — Berbagai Quality Factor</div>
         <table>
-          <thead><tr><th class="mono">QF</th><th>Status Ekstraksi</th><th class="mono">Bit Accuracy</th><th class="mono">PSNR (JPEG)</th></tr></thead>
+          <thead><tr><th class="mono">QF</th><th>Status Ekstraksi</th><th class="mono">Bit Accuracy</th><th class="mono">PSNR Stego–JPEG</th></tr></thead>
           <tbody id="jpeg-history-tbody">
             <tr><td colspan="4" style="text-align:center;color:var(--ink-soft);font-size:12px;padding:18px;">Belum ada pengujian dilakukan.</td></tr>
           </tbody>

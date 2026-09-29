@@ -2,56 +2,71 @@
 //
 // Menghitung Peak Signal-to-Noise Ratio (PSNR) dari nilai MSE.
 //
-// ── Definisi PSNR ────────────────────────────────────────────────────────
-// PSNR adalah metrik kualitas citra yang mengukur seberapa mirip stego
-// image dengan cover image aslinya, dinyatakan dalam satuan desibel (dB):
+// ── Rumus dari Dokumen Penelitian ────────────────────────────────────────────
+//
+//   PSNR = 20 × log₁₀(255 / √MSE)
+//
+// dengan:
+//   255  = nilai pixel maksimum untuk citra 8-bit per channel (MAX)
+//   MSE  = Mean Squared Error antara cover image dan stego image
+//   √MSE = RMSE (Root Mean Squared Error)
+//
+// ── Ekuivalensi Matematis ─────────────────────────────────────────────────────
+// Rumus di atas identik dengan bentuk lain yang umum:
 //
 //   PSNR = 10 × log₁₀(MAX² / MSE)
 //
-// dengan:
-//   MAX = nilai pixel maksimum = 255 (untuk 8-bit per channel)
-//   MSE = Mean Squared Error antara cover dan stego image
+// Karena:
+//   20 × log₁₀(MAX / √MSE)
+//   = 20 × [log₁₀(MAX) - log₁₀(√MSE)]
+//   = 20 × [log₁₀(MAX) - ½ × log₁₀(MSE)]
+//   = 10 × [2×log₁₀(MAX) - log₁₀(MSE)]
+//   = 10 × log₁₀(MAX² / MSE)
 //
-// Apabila MSE = 0 (image identik), PSNR = ∞ (tak terhingga).
+// Implementasi menggunakan bentuk `10 × log₁₀(MAX² / MSE)` karena
+// lebih efisien (satu operasi log, tidak perlu Math.sqrt).
 //
-// ── Interpretasi Nilai PSNR ─────────────────────────────────────────────
-//   PSNR > 40 dB : Perbedaan tidak terlihat oleh mata manusia
-//   PSNR > 50 dB : Kualitas sangat tinggi, distorsi sangat minimal
-//   PSNR > 60 dB : Hampir identik secara visual
+// ── Kasus Tepi ───────────────────────────────────────────────────────────────
+//   MSE = 0  → Cover dan Stego image identik → PSNR = ∞ (Infinity)
+//   MSE > 0  → Kalkulasi normal
+//   MSE < 0  → Tidak valid, dilempar Error
 //
-// Untuk LSB 1-bit pada seluruh pixel 512×512 (kasus embedding penuh):
-//   MSE teoritis ≈ 0.25  →  PSNR ≈ 54 dB  (kualitas sangat baik)
-//
-// ── Implementasi ──────────────────────────────────────────────────────────
-//   calculatePSNR(mse, maxPixelValue?) → number (dB) | Infinity
+// ── Interface ─────────────────────────────────────────────────────────────────
+//   calculatePSNR(mse, maxPixelValue?) → number | Infinity
+//   formatPSNR(psnr, decimals?)        → string  ("74.88 dB" atau "∞ dB")
 
 /**
- * Hitung PSNR dari nilai MSE.
+ * Hitung PSNR dari nilai MSE menggunakan rumus penelitian:
+ *   PSNR = 20 × log₁₀(255 / √MSE)
  *
- * @param {number} mse            – nilai MSE dari calculateMSE()
- * @param {number} maxPixelValue  – nilai pixel maksimum (default 255 untuk 8-bit)
+ * Implementasi internal menggunakan bentuk ekuivalen:
+ *   PSNR = 10 × log₁₀(MAX² / MSE)
+ *
+ * @param {number} mse            – nilai MSE ≥ 0, dari calculateMSE()
+ * @param {number} maxPixelValue  – nilai pixel maksimum; default 255 (8-bit)
  * @returns {number}              – PSNR dalam dB; Infinity jika MSE = 0
+ * @throws {Error}                – jika MSE negatif
  */
 export function calculatePSNR(mse, maxPixelValue = 255) {
-  // MSE = 0 berarti kedua image identik → PSNR tak terhingga
+  // MSE = 0: cover dan stego image identik secara pixel → PSNR tak terhingga
   if (mse === 0) return Infinity;
 
-  // MSE negatif tidak valid
   if (mse < 0) {
-    throw new Error('[psnrCalculator] MSE tidak boleh negatif.');
+    throw new Error('[psnrCalculator] MSE tidak boleh negatif, diterima: ' + mse);
   }
 
   // PSNR = 10 × log₁₀(MAX² / MSE)
-  const psnr = 10 * Math.log10((maxPixelValue * maxPixelValue) / mse);
-  return psnr;
+  // Ekuivalen dengan: PSNR = 20 × log₁₀(MAX / √MSE)
+  return 10 * Math.log10((maxPixelValue * maxPixelValue) / mse);
 }
 
 /**
  * Format nilai PSNR untuk tampilan UI.
+ * Menampilkan nilai faktual tanpa interpretasi subjektif.
  *
- * @param {number} psnr  – nilai dari calculatePSNR()
- * @param {number} decimals  – jumlah desimal (default 2)
- * @returns {string}     – misal "74.88 dB" atau "∞ dB"
+ * @param {number} psnr     – nilai dari calculatePSNR()
+ * @param {number} decimals – jumlah desimal (default 2)
+ * @returns {string}        – misal "74.88 dB" atau "∞ dB"
  */
 export function formatPSNR(psnr, decimals = 2) {
   if (!isFinite(psnr)) return '∞ dB';

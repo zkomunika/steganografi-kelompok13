@@ -8,25 +8,35 @@
 // JPEG adalah kompresi lossy berbasis DCT yang mengubah nilai piksel secara
 // non-linear, sehingga LSB yang disisipkan akan rusak.
 //
-// ── Pipeline ─────────────────────────────────────────────────────────────────
-//   Upload stego image (PNG/BMP hasil embedding)
-//   → Input Stego-Key (sama dengan saat embedding)
-//   → Atur Quality Factor (slider 10–100)
-//   → [Run JPEG Test]
-//   → Kompres stego image ke JPEG pada QF tertentu
-//   → Decode JPEG kembali ke pixel buffer
-//   → Coba ekstrak pesan dari JPEG image dengan key yang sama
-//   → Hitung Bit Accuracy: LSB sebelum vs sesudah kompresi
-//   → Hitung PSNR antara stego dan JPEG image
-//   → Tampilkan hasil di UI + simpan ke tabel histori
+// ── Pipeline (Alur Wajib) ────────────────────────────────────────────────────
+//   Stego Image
+//   → JPEG Compression (canvas.toDataURL, QF 10–100)
+//   → JPEG Image (pixel buffer nyata, bukan contoh)
+//   → Extraction menggunakan Stego-Key yang sama
+//   → Bandingkan dengan pesan asli
+//   → Hitung Bit Accuracy = N_benar / N_total × 100%
+//   → Tampilkan hasil di UI + tabel histori
 //
 // ── Bit Accuracy ─────────────────────────────────────────────────────────────
-//   Bit Accuracy Sebelum = ekstrak dari stego asli → bandingkan dengan diri sendiri → 100%
-//   Bit Accuracy Sesudah = ekstrak dari JPEG → bandingkan LSB-by-LSB dengan stego asli
+//   Bit Accuracy = (bit yang cocok di slot payload) / (total bit payload) × 100%
+//
+//   Perhitungan menggunakan panjang payload asli (dari state.embeddingResult)
+//   sehingga perbandingan dilakukan terhadap jumlah bit yang diketahui, bukan
+//   bergantung pada length header yang mungkin sudah rusak akibat JPEG.
 //
 //   ~100% → JPEG tidak merusak bit → pesan masih bisa diekstrak
-//   ~50%  → JPEG merusak seluruh bit (distribusi acak → seperti noise)
+//   ~50%  → JPEG merusak seluruh bit (distribusi acak seperti noise)
 //   0–50% → JPEG merusak sebagian besar bit
+//
+// ── Sumber Panjang Payload ────────────────────────────────────────────────────
+//   Priority 1: state.embeddingResult.bitsEmbedded (jika user upload stego
+//               dari sesi embedding yang sama → paling akurat)
+//   Priority 2: Baca header dari stego asli (fallback: jika upload stego
+//               dari file eksternal)
+//
+// ── Multi-QF Test ────────────────────────────────────────────────────────────
+//   Run All QF: jalankan pipeline untuk QF = [100, 90, 70, 50, 30]
+//   secara berurutan dan tampilkan semua hasil ke tabel sekaligus.
 
 import { getState, setState, batchSetState }      from '../state.js';
 import { pickImageFile, readImageFile }            from '../services/fileService.js';
@@ -35,9 +45,13 @@ import { generateSlotSequence }                   from '../core/pixelPositionSel
 import { extractBits }                            from '../core/lsbEmbeddingEngine.js';
 import { bitsToMessage }                          from '../core/messageBitConverter.js';
 import { compressToJPEG, calcBitAccuracy }        from '../evaluation/jpegCompressionTest.js';
+import { downloadImage }                          from '../utils/imageFileHandler.js';
 import { ERROR, STATUS }                          from '../constants.js';
 import { showError, clearError }                  from '../utils/uiHelpers.js';
 import { CONFIG }                                 from '../config.js';
+
+// QF yang diuji pada "Run All QF"
+const MULTI_QF_LIST = [100, 90, 70, 50, 30];
 
 const HEADER_BITS  = 32;
 const HEADER_BYTES = 4;
@@ -60,6 +74,8 @@ function cacheDom() {
   dom.range          = page.querySelector('#jpeg-qf-range');
   dom.rangeLabel     = page.querySelector('#jpeg-qf-label');
   dom.runBtn         = page.querySelector('#jpeg-btn');
+  dom.runAllBtn      = page.querySelector('#jpeg-btn-all');
+  dom.downloadJpegBtn = page.querySelector('#jpeg-download-btn');
   dom.resultStatus   = page.querySelector('#jpeg-result-status');
   dom.resultTextarea = page.querySelector('#jpeg-result-textarea');
   dom.accBefore      = page.querySelector('#jpeg-acc-before');
@@ -123,7 +139,124 @@ function validateJpegTestInputs() {
 }
 
 // ---------------------------------------------------------------------------
-// Run JPEG Test — pipeline utama
+// Resolusi panjang payload
+//
+// Spesifikasi: gunakan panjang payload asli dari state embedding agar
+// perbandingan bit dilakukan terhadap jumlah bit yang diketahui, bukan
+// bergantung pada length header yang mungkin sudah rusak akibat JPEG.
+//
+// Jika state.embeddingResult tidak tersedia (user upload dari file eksternal),
+// fallback ke baca header dari stego asli (masih PNG/lossless sehingga
+// header dapat dibaca dengan benar dari stegoImageData, bukan dari JPEG).
+// ---------------------------------------------------------------------------
+function _resolvePayloadBitLen(stegoImageData, totalSlots, key) {
+  const st = getState();
+
+  // Priority 1: dari state embedding (sesi yang sama)
+  if (st.embeddingResult && st.embeddingResult.bitsEmbedded > 0) {
+    return {
+      payloadBitLen: st.embeddingResult.bitsEmbedded,
+      source: 'state',
+    };
+  }
+
+  // Priority 2: baca header dari stego asli (masih lossless)
+  if (totalSlots < HEADER_BITS) return { payloadBitLen: 0, source: 'none' };
+
+  const headerSlots = generateSlotSequence(key, totalSlots, HEADER_BITS);
+  const headerBits  = extractBits(stegoImageData, headerSlots);
+
+  let payloadByteLen = 0;
+  for (let i = 0; i < HEADER_BITS; i++) {
+    payloadByteLen = (payloadByteLen << 1) | (headerBits[i] & 1);
+  }
+  payloadByteLen = payloadByteLen >>> 0;
+
+  const maxPayloadBytes = Math.floor((totalSlots - HEADER_BITS) / 8);
+  if (payloadByteLen === 0 || payloadByteLen > maxPayloadBytes) {
+    return { payloadBitLen: 0, source: 'none' };
+  }
+
+  // bitsEmbedded = header (32 bit) + payload (payloadByteLen × 8)
+  return {
+    payloadBitLen: HEADER_BITS + payloadByteLen * 8,
+    source: 'header',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Core pipeline — satu QF
+// ---------------------------------------------------------------------------
+/**
+ * Jalankan satu pengujian JPEG untuk satu Quality Factor.
+ *
+ * @param {object}    st              – current state snapshot
+ * @param {ImageData} stegoImageData  – pixel buffer stego asli
+ * @param {number}    totalSlots      – W × H × 3
+ * @param {number}    qf              – Quality Factor 1–100
+ * @returns {Promise<object>}         – hasil pengujian untuk satu QF
+ */
+async function _runOneQF(st, stegoImageData, totalSlots, qf) {
+  // ── 1. Kompres ke JPEG dan decode kembali ─────────────────────────────
+  const jpegResult = await compressToJPEG(stegoImageData, qf);
+  const { jpegImageData, jpegDataUrl, psnr: jpegPsnr, mse: jpegMse } = jpegResult;
+
+  // ── 2. Resolusi panjang payload ───────────────────────────────────────
+  const { payloadBitLen, source: lenSource } = _resolvePayloadBitLen(
+    stegoImageData, totalSlots, st.jpegKey
+  );
+
+  // Jumlah bit yang dibandingkan:
+  // Jika panjang diketahui → gunakan itu.
+  // Jika tidak → sampling 1000 slot (representatif, bukan klaim kerapuhan).
+  const sampleCount = payloadBitLen > 0
+    ? payloadBitLen
+    : Math.min(1000, totalSlots);
+
+  const sampleSlots = generateSlotSequence(st.jpegKey, totalSlots, sampleCount);
+
+  // ── 3. Hitung Bit Accuracy ────────────────────────────────────────────
+  // Bandingkan LSB dari stego asli (referensi) vs LSB dari JPEG
+  // Rumus: Akurasi = N_benar / N_total × 100%
+  const bitsFromStego = extractBits(stegoImageData, sampleSlots);  // referensi
+  const bitsFromJpeg  = extractBits(jpegImageData,  sampleSlots);  // setelah kompresi
+
+  const bitAccBefore = 100;   // stego vs dirinya sendiri selalu 100%
+  const bitAccAfter  = calcBitAccuracy(bitsFromStego, bitsFromJpeg);
+
+  // ── 4. Coba ekstrak pesan dari JPEG image ─────────────────────────────
+  let extractedMessage = null;
+  let extractionStatus = STATUS.FAIL;
+
+  if (payloadBitLen > 0) {
+    const allBits = extractBits(jpegImageData, sampleSlots);
+    try {
+      const decoded = bitsToMessage(allBits);
+      if (decoded && decoded.length > 0) {
+        extractedMessage = decoded;
+        extractionStatus = STATUS.OK;
+      }
+    } catch (_) {
+      // Decode gagal → pesan rusak → extractionStatus tetap FAIL
+    }
+  }
+
+  return {
+    qf,
+    jpegDataUrl,
+    jpegPsnr,
+    jpegMse,
+    bitAccBefore,
+    bitAccAfter,
+    extractedMessage,
+    extractionStatus,
+    sampleCount,
+    lenSource,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Run JPEG Test — single QF
 // ---------------------------------------------------------------------------
 async function handleRunTest() {
   clearError(dom.page);
@@ -135,112 +268,26 @@ async function handleRunTest() {
     return;
   }
 
-  _setButtonState(true, 'Menguji…');
+  _setButtonState(dom.runBtn, true, 'Menguji…');
 
   try {
     const st = getState();
     const qf = st.qualityFactor || CONFIG.jpegTest.defaultQuality;
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 1: Decode stego image ke pixel buffer
-    // ─────────────────────────────────────────────────────────────────────
-    let stegoDecoded;
-    try {
-      stegoDecoded = decodeImage(st.jpegStegoImage);
-    } catch (e) {
-      throw new Error('Gagal membaca pixel stego image: ' + e.message);
-    }
-
+    const stegoDecoded   = decodeImage(st.jpegStegoImage);
     const stegoImageData = stegoDecoded.imageData;
     const totalSlots     = stegoDecoded.width * stegoDecoded.height * 3;
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 2: Kompres ke JPEG dan decode kembali
-    // ─────────────────────────────────────────────────────────────────────
-    let jpegResult;
-    try {
-      jpegResult = await compressToJPEG(stegoImageData, qf);
-    } catch (e) {
-      throw new Error('Kompresi JPEG gagal: ' + e.message);
-    }
+    const result = await _runOneQF(st, stegoImageData, totalSlots, qf);
 
-    const { jpegImageData, jpegDataUrl, psnr: jpegPsnr } = jpegResult;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 3: Baca header dari stego asli untuk mengetahui ukuran pesan
-    // ─────────────────────────────────────────────────────────────────────
-    if (totalSlots < HEADER_BITS) {
-      throw new Error('Image terlalu kecil untuk mengandung header pesan.');
-    }
-
-    const headerSlots = generateSlotSequence(st.jpegKey, totalSlots, HEADER_BITS);
-    const headerBits  = extractBits(stegoImageData, headerSlots);
-
-    let payloadByteLen = 0;
-    for (let i = 0; i < HEADER_BITS; i++) {
-      payloadByteLen = (payloadByteLen << 1) | (headerBits[i] & 1);
-    }
-    payloadByteLen = payloadByteLen >>> 0;
-
-    const maxPayloadBytes = Math.floor(totalSlots / 8) - HEADER_BYTES;
-    const hasValidHeader  = payloadByteLen > 0 && payloadByteLen <= maxPayloadBytes;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 4: Hitung Bit Accuracy — bandingkan LSB stego vs LSB JPEG
-    //
-    // Gunakan slot sequence yang sama (dari stego asli + key yang sama).
-    // Jika header valid, gunakan jumlah bit pesan nyata.
-    // Jika tidak, sampling 1000 slot untuk mengukur akurasi.
-    // ─────────────────────────────────────────────────────────────────────
-    const sampleCount = hasValidHeader
-      ? (HEADER_BYTES + payloadByteLen) * 8
-      : Math.min(1000, totalSlots);
-
-    const sampleSlots = generateSlotSequence(st.jpegKey, totalSlots, sampleCount);
-
-    // Baca LSB dari stego asli (referensi = 100%)
-    const bitsFromStego = extractBits(stegoImageData, sampleSlots);
-    // Baca LSB dari JPEG (setelah kompresi)
-    const bitsFromJpeg  = extractBits(jpegImageData,  sampleSlots);
-
-    const bitAccBefore = 100;   // stego vs dirinya sendiri selalu 100%
-    const bitAccAfter  = calcBitAccuracy(bitsFromStego, bitsFromJpeg);
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 5: Coba ekstrak pesan dari JPEG image
-    // ─────────────────────────────────────────────────────────────────────
-    let extractedMessage = null;
-    let extractionStatus = STATUS.FAIL;
-
-    if (hasValidHeader) {
-      const fullSlots = generateSlotSequence(st.jpegKey, totalSlots, sampleCount);
-      const allBits   = extractBits(jpegImageData, fullSlots);
-      const decoded   = bitsToMessage(allBits);
-      if (decoded && decoded.length > 0) {
-        extractedMessage = decoded;
-        extractionStatus = STATUS.OK;
-      }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 6: Simpan hasil ke state & histori
-    // ─────────────────────────────────────────────────────────────────────
-    const result = {
-      qf             : qf,
-      jpegDataUrl    : jpegDataUrl,
-      jpegPsnr       : jpegPsnr,
-      bitAccBefore   : bitAccBefore,
-      bitAccAfter    : bitAccAfter,
-      extractedMessage,
-      extractionStatus,
-    };
-
+    // Simpan ke state
     const historyRow = {
       qf,
-      status       : extractionStatus,
-      bitAccAfter  : bitAccAfter,
-      psnr         : isFinite(jpegPsnr) ? Number(jpegPsnr.toFixed(2)) : null,
-      timestamp    : new Date().toLocaleTimeString('id-ID'),
+      status      : result.extractionStatus,
+      bitAccAfter : result.bitAccAfter,
+      psnr        : isFinite(result.jpegPsnr) ? Number(result.jpegPsnr.toFixed(2)) : null,
+      timestamp   : new Date().toLocaleTimeString('id-ID'),
+      isBatch     : false,
     };
 
     const currentHistory = getState().jpegTestHistory || [];
@@ -249,35 +296,122 @@ async function handleRunTest() {
       jpegTestHistory : [historyRow, ...currentHistory],
     });
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Tahap 7: Update UI
-    // ─────────────────────────────────────────────────────────────────────
-    _renderJpegPreview(jpegDataUrl, qf);
+    // Update UI
+    _renderJpegPreview(result.jpegDataUrl, qf);
     _renderResult(result);
     _appendHistoryRow(historyRow);
 
-    console.info(
-      `[JpegTestController] QF=${qf} | Bit Accuracy: ${bitAccAfter}% | ` +
-      `PSNR: ${isFinite(jpegPsnr) ? jpegPsnr.toFixed(2) : '∞'} dB | ` +
-      `Extraction: ${extractionStatus}`
-    );
+    // Aktifkan download JPEG setelah pengujian berhasil
+    if (dom.downloadJpegBtn) dom.downloadJpegBtn.disabled = false;
 
   } catch (err) {
     showError(dom.page, err.message);
     console.warn('[JpegTestController] Test gagal:', err.message);
   } finally {
-    _setButtonState(false, 'Run JPEG Test');
+    _setButtonState(dom.runBtn, false, 'Run JPEG Test');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Run Multi-QF Test — QF [100, 90, 70, 50, 30]
+// ---------------------------------------------------------------------------
+async function handleRunAllQF() {
+  clearError(dom.page);
+
+  try {
+    validateJpegTestInputs();
+  } catch (err) {
+    showError(dom.page, err.message);
+    return;
+  }
+
+  _setButtonState(dom.runBtn,    true, 'Menguji…');
+  _setButtonState(dom.runAllBtn, true, 'Menjalankan semua QF…');
+
+  // Hapus placeholder sebelum batch
+  _clearHistoryIfPlaceholder();
+
+  try {
+    const st = getState();
+
+    const stegoDecoded   = decodeImage(st.jpegStegoImage);
+    const stegoImageData = stegoDecoded.imageData;
+    const totalSlots     = stegoDecoded.width * stegoDecoded.height * 3;
+
+    const batchRows = [];
+
+    // Jalankan setiap QF secara berurutan (bukan paralel) agar canvas tidak
+    // overlap dan hasil PSNR/bit accuracy dapat dibandingkan secara konsisten.
+    for (const qf of MULTI_QF_LIST) {
+      // Update label tombol agar user tahu progres
+      _setButtonState(dom.runAllBtn, true, `Menguji QF ${qf}…`);
+
+      // eslint-disable-next-line no-await-in-loop
+      const result = await _runOneQF(st, stegoImageData, totalSlots, qf);
+
+      const historyRow = {
+        qf,
+        status      : result.extractionStatus,
+        bitAccAfter : result.bitAccAfter,
+        psnr        : isFinite(result.jpegPsnr) ? Number(result.jpegPsnr.toFixed(2)) : null,
+        timestamp   : new Date().toLocaleTimeString('id-ID'),
+        isBatch     : true,
+      };
+      batchRows.push(historyRow);
+
+      // Render baris langsung saat selesai, sehingga user melihat progress real-time
+      _appendHistoryRow(historyRow);
+
+      // Update preview dengan hasil QF saat ini
+      _renderJpegPreview(result.jpegDataUrl, qf);
+      _renderResult(result);
+    }
+
+    // Aktifkan download JPEG (hasil QF terakhir dalam batch)
+    if (dom.downloadJpegBtn) dom.downloadJpegBtn.disabled = false;
+
+    // Update state dengan seluruh histori batch
+    const currentHistory = getState().jpegTestHistory || [];
+    setState('jpegTestHistory', [...batchRows, ...currentHistory]);
+
+  } catch (err) {
+    showError(dom.page, err.message);
+    console.warn('[JpegTestController] Multi-QF test gagal:', err.message);
+  } finally {
+    _setButtonState(dom.runBtn,    false, 'Run JPEG Test');
+    _setButtonState(dom.runAllBtn, false, 'Run All QF (100/90/70/50/30)');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Download JPEG
+// ---------------------------------------------------------------------------
+/**
+ * Unduh hasil JPEG terakhir yang ada di preview.
+ * Nama file dibuat dinamis dari nama stego image dan QF yang digunakan.
+ */
+function handleDownloadJpeg() {
+  const st = getState();
+  const result = st.jpegTestResult;
+  if (!result || !result.jpegDataUrl) {
+    showError(dom.page, 'Belum ada hasil JPEG untuk diunduh. Jalankan pengujian terlebih dahulu.');
+    return;
+  }
+  const stegoName = st.jpegStegoImage
+    ? st.jpegStegoImage.name.replace(/\.[^.]+$/, '')
+    : 'stego';
+  const filename = `jpeg_qf${result.qf}_${stegoName}.jpg`;
+  downloadImage(result.jpegDataUrl, filename);
 }
 
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
 
-function _setButtonState(disabled, label) {
-  if (!dom.runBtn) return;
-  dom.runBtn.disabled    = disabled;
-  dom.runBtn.textContent = label;
+function _setButtonState(btn, disabled, label) {
+  if (!btn) return;
+  btn.disabled    = disabled;
+  btn.textContent = label;
 }
 
 function _renderStegoPreview(meta) {
@@ -315,7 +449,7 @@ function _renderResult(result) {
     }
   }
 
-  // Status badge
+  // Status badge — hanya mencatat hasil, tidak membuat klaim tentang keamanan
   if (dom.resultStatus) {
     dom.resultStatus.innerHTML = '';
     if (extractionStatus === STATUS.OK) {
@@ -329,15 +463,14 @@ function _renderResult(result) {
     }
   }
 
-  // Metrik — bit accuracy
+  // Bit Accuracy — nilai aktual hasil perhitungan
   if (dom.accBefore) {
     dom.accBefore.textContent = bitAccBefore.toFixed(2) + '%';
     dom.accBefore.className   = 'metric-value good';
   }
   if (dom.accAfter) {
-    const isGood = bitAccAfter >= 90;
     dom.accAfter.textContent = bitAccAfter.toFixed(2) + '%';
-    dom.accAfter.className   = 'metric-value' + (isGood ? ' good' : '');
+    dom.accAfter.className   = 'metric-value';
   }
 
   // QF result
@@ -357,18 +490,23 @@ function _clearResult() {
   if (dom.jpegQfBadge)    dom.jpegQfBadge.textContent = 'QF —';
 }
 
+function _clearHistoryIfPlaceholder() {
+  if (!dom.historyTbody) return;
+  const placeholder = dom.historyTbody.querySelector('tr td[colspan]');
+  if (placeholder) dom.historyTbody.innerHTML = '';
+}
+
 /**
  * Tambahkan satu baris ke tabel histori pengujian.
- * Jika ini adalah baris pertama, hapus placeholder "Belum ada pengujian".
  */
 function _appendHistoryRow(row) {
   if (!dom.historyTbody) return;
 
   // Hapus placeholder jika masih ada
-  const placeholder = dom.historyTbody.querySelector('tr td[colspan]');
-  if (placeholder) dom.historyTbody.innerHTML = '';
+  _clearHistoryIfPlaceholder();
 
   const tr = document.createElement('tr');
+  if (row.isBatch) tr.classList.add('batch-row');
 
   // QF
   const tdQf = document.createElement('td');
@@ -376,23 +514,24 @@ function _appendHistoryRow(row) {
   tdQf.textContent = row.qf;
   tr.appendChild(tdQf);
 
-  // Status ekstraksi
+  // Status ekstraksi — faktual, tanpa klaim keamanan/kualitas
   const tdStatus = document.createElement('td');
   tdStatus.innerHTML = row.status === STATUS.OK
     ? '<span class="status ok"><span class="status-dot"></span>Berhasil</span>'
     : '<span class="status fail"><span class="status-dot"></span>Gagal</span>';
   tr.appendChild(tdStatus);
 
-  // Bit Accuracy
+  // Bit Accuracy — nilai aktual
   const tdAcc = document.createElement('td');
   tdAcc.className   = 'mono';
   tdAcc.textContent = row.bitAccAfter + '%';
+  // Warna hanya sebagai penanda perbedaan nilai, bukan klaim kualitas
   tdAcc.style.color = row.bitAccAfter >= 90
     ? 'var(--accent)' : row.bitAccAfter >= 70
     ? 'var(--warn)' : '#e55';
   tr.appendChild(tdAcc);
 
-  // PSNR
+  // PSNR (stego vs JPEG) — nilai aktual dalam dB
   const tdPsnr = document.createElement('td');
   tdPsnr.className   = 'mono';
   tdPsnr.textContent = row.psnr !== null ? row.psnr + ' dB' : '∞ dB';
@@ -429,7 +568,12 @@ export function initJpegTestController() {
     if (dom.rangeLabel) dom.rangeLabel.textContent = String(CONFIG.jpegTest.defaultQuality);
   }
 
-  if (dom.runBtn) dom.runBtn.addEventListener('click', handleRunTest);
+  if (dom.runBtn)    dom.runBtn.addEventListener('click', handleRunTest);
+  if (dom.runAllBtn) dom.runAllBtn.addEventListener('click', handleRunAllQF);
+  if (dom.downloadJpegBtn) {
+    dom.downloadJpegBtn.addEventListener('click', handleDownloadJpeg);
+    dom.downloadJpegBtn.disabled = true;  // aktif hanya setelah test berhasil
+  }
 
   // Init state
   setState('jpegKey', '');
