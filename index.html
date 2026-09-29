@@ -21,6 +21,7 @@
       <div class="nav-item" data-page="extraction"><span class="nav-num">03</span>Extraction</div>
       <div class="nav-item" data-page="analysis"><span class="nav-num">04</span>Image Analysis</div>
       <div class="nav-item" data-page="jpeg"><span class="nav-num">05</span>JPEG Test</div>
+      <div class="nav-item" data-page="batch"><span class="nav-num">06</span>Pengujian Batch</div>
     </nav>
     <div class="sidebar-foot">build v0.2<br>informatika · tugas akhir</div>
   </aside>
@@ -53,6 +54,11 @@
           <div class="func-icon">◪</div>
           <div class="func-title">JPEG Fragility Test</div>
           <p class="func-desc">Uji ketahanan pesan tersembunyi terhadap kompresi JPEG pada berbagai Quality Factor.</p>
+        </div>
+        <div class="func-card" data-goto="batch">
+          <div class="func-icon">☰</div>
+          <div class="func-title">Pengujian Batch</div>
+          <p class="func-desc">Jalankan 5 citra × 3 ukuran pesan sekaligus, lihat PSNR, MSE, dan χ², lalu ekspor ke XLSX.</p>
         </div>
       </div>
       <div class="card">
@@ -433,9 +439,73 @@
       </div>
     </section>
 
+    <!-- BATCH TEST -->
+    <section class="page" id="page-batch">
+      <div class="page-head">
+        <h1 class="page-title">Pengujian Batch</h1>
+        <p class="page-desc">Jalankan 5 citra × 3 ukuran pesan (≈10%, 50%, 90% kapasitas citra terkecil) melalui pipeline lengkap: enkripsi, embed, encode PNG, ekstraksi, dekripsi. Hasilnya dapat diekspor ke XLSX.</p>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <div class="card">
+            <div class="card-title">Citra Uji</div>
+            <div class="field">
+              <label>5 Citra (PNG/BMP) — foto milik sendiri</label>
+              <div class="dropzone" id="batch-dropzone">
+                Klik atau tarik 5 file ke sini
+                <br><span class="fname">pilih kelima file sekaligus</span>
+              </div>
+              <input type="file" id="batch-file-input" accept="image/png,image/bmp,.png,.bmp" multiple hidden>
+            </div>
+            <div class="field">
+              <label>Berkas Terpilih</label>
+              <div id="batch-file-list"></div>
+            </div>
+            <div class="help" id="batch-size-info" style="display:none;"></div>
+            <div class="batch-notice" id="batch-notice" style="display:none;"></div>
+            <button class="btn btn-primary" id="batch-run-btn" disabled style="margin-top:14px;">Jalankan 15 Skenario</button>
+            <div class="batch-progress" id="batch-progress" style="display:none;">
+              <div class="capacity-bar"><div class="capacity-fill" id="batch-progress-fill" style="width:0%;"></div></div>
+              <div class="help" id="batch-progress-text"></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="card-title">
+              <span>Tabel Hasil</span>
+              <span class="batch-actions">
+                <button class="btn btn-secondary" id="batch-export-xlsx" disabled>↓ Ekspor XLSX</button>
+                <button class="btn" id="batch-export-csv" disabled>↓ CSV</button>
+              </span>
+            </div>
+            <div class="batch-summary" id="batch-summary" style="display:none;"></div>
+            <div class="batch-table-wrap">
+              <table class="ana-table batch-table">
+                <thead id="batch-thead"></thead>
+                <tbody id="batch-tbody"></tbody>
+              </table>
+            </div>
+            <p class="ana-note">
+              Pesan yang sama dipakai untuk kelima citra, sehingga citra yang lebih besar dari citra terkecil memiliki
+              pemakaian di bawah 10/50/90%. Salt dan IV enkripsi dibuat tetap selama pengujian batch agar hasil dapat
+              diulang (MSE dan PSNR sama pada input yang sama); halaman Embedding tetap memakai salt dan IV acak.
+              Nilai χ² adalah indikator statistik, bukan bukti ada atau tidaknya pesan.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
+<!-- SheetJS (hanya untuk menulis XLSX; bukan bagian algoritma LSB/PRNG). Versi dipin.
+     Untuk SRI: unduh berkas ini, hitung `openssl dgst -sha512 -binary xlsx.full.min.js | openssl base64 -A`,
+     lalu tambahkan atribut integrity="sha512-…" dan crossorigin="anonymous". -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" referrerpolicy="no-referrer"></script>
 <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

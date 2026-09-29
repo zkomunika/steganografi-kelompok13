@@ -8,6 +8,7 @@ export const PAGES = {
   EXTRACTION: 'extraction',
   ANALYSIS:   'analysis',
   JPEG:       'jpeg',
+  BATCH:      'batch',
 };
 
 export const PAGE_ID_PREFIX = 'page-';

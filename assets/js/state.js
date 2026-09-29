@@ -64,6 +64,11 @@ const _state = {
 
   // ── Embedding result ──────────────────────────────────────────────────────
   embeddingResult: null,  // { success: bool, stegoImageData: ImageData, ... } | null
+
+  // ── Batch test (5 citra × 3 ukuran pesan) ─────────────────────────────────
+  // Row[] dari evaluation/batchRunner.js: 15 baris setelah batch selesai, [] selain itu.
+  // Tombol ekspor aktif hanya bila array ini tidak kosong.
+  batchResults: [],
 };
 
 // ---------------------------------------------------------------------------

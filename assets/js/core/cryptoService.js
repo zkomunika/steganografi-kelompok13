@@ -94,15 +94,23 @@ async function _deriveKey(password, salt, usage) {
 /**
  * @param {string} plaintext
  * @param {string} password   – Kunci Enkripsi (bukan Stego-Key)
+ * @param {{salt?:Uint8Array, iv?:Uint8Array}} [testOverrides]
+ *        HANYA untuk pengujian yang harus dapat diulang (runner batch): salt/IV
+ *        tetap membuat ciphertext, dan karenanya bit yang diubah, identik di setiap
+ *        run. Jangan dipakai di jalur pemakaian biasa — salt dan IV wajib acak
+ *        (dan IV tidak boleh dipakai ulang dengan kunci yang sama).
  * @returns {Promise<Uint8Array>}  salt ‖ iv ‖ ciphertext ‖ tag
  */
-export async function encryptMessage(plaintext, password) {
+export async function encryptMessage(plaintext, password, testOverrides = {}) {
   if (typeof plaintext !== 'string') {
     throw new TypeError('[cryptoService] plaintext harus berupa string.');
   }
   const subtle = _subtle();
-  const salt   = globalThis.crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const iv     = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const salt   = testOverrides.salt ?? globalThis.crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const iv     = testOverrides.iv   ?? globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  if (salt.length !== SALT_BYTES || iv.length !== IV_BYTES) {
+    throw new TypeError(`[cryptoService] salt harus ${SALT_BYTES} byte dan IV ${IV_BYTES} byte.`);
+  }
   const key    = await _deriveKey(password, salt, 'encrypt');
 
   const ct = new Uint8Array(

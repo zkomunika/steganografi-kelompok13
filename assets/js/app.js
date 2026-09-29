@@ -9,6 +9,7 @@ import { initEmbeddingController } from './controllers/embeddingController.js';
 import { initExtractionController } from './controllers/extractionController.js';
 import { initAnalysisController } from './controllers/analysisController.js';
 import { initJpegTestController } from './controllers/jpegTestController.js';
+import { initBatchTestController } from './controllers/batchTestController.js';
 
 function bootstrap() {
   initNavigation();
@@ -16,6 +17,7 @@ function bootstrap() {
   initExtractionController();
   initAnalysisController();
   initJpegTestController();
+  initBatchTestController();
 
   console.info(`[app] ${CONFIG.appName} ${CONFIG.version} — modular foundation loaded.`);
 }
